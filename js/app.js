@@ -119,7 +119,7 @@ const Modal = (() => {
 // Em desenvolvimento usamos localhost; em produção usamos a URL do backend no Render
 const API_BASE = window.location.hostname.includes("localhost")
   ? "http://localhost:3000"
-  : "https://SEU-SERVICO.onrender.com";
+  : "https://aba-aos0.onrender.com";
 const getAuthHeaders = () => {
   const token = localStorage.getItem("psyhead-token");
   return token
