@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   "use strict";
+  const API_BASE = "https://aba-aos0.onrender.com";
   const sidebarLinks = document.querySelectorAll(".sidebar nav a");
   const contentSections = document.querySelectorAll(".content-section");
   const featureCards = document.querySelectorAll(".feature-card");
@@ -143,7 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
     medicationListDiv.innerHTML = "<p>Carregando...</p>";
     try {
       const response = await fetch(
-        `http://localhost:3000/api/pacientes/${pacienteId}/medicacoes`,
+        `${API_BASE}/api/pacientes/${pacienteId}/medicacoes`,
         {
           headers: getAuthHeaders(),
         }
@@ -215,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (medicacaoId) {
       try {
         const response = await fetch(
-          `http://localhost:3000/api/medicacoes/${medicacaoId}`,
+          `${API_BASE}/api/medicacoes/${medicacaoId}`,
           {
             headers: getAuthHeaders(),
           }
@@ -268,8 +269,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const method = medicacaoId ? "PUT" : "POST";
     const url = medicacaoId
-      ? `http://localhost:3000/api/medicacoes/${medicacaoId}`
-      : `http://localhost:3000/api/pacientes/${pacienteId}/medicacoes`;
+      ? `${API_BASE}/api/medicacoes/${medicacaoId}`
+      : `${API_BASE}/api/pacientes/${pacienteId}/medicacoes`;
 
     try {
       const response = await fetch(url, {
@@ -296,7 +297,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     try {
       const response = await fetch(
-        `http://localhost:3000/api/medicacoes/${medicacaoId}`,
+        `${API_BASE}/api/medicacoes/${medicacaoId}`,
         {
           method: "DELETE",
           headers: getAuthHeaders(),
@@ -329,7 +330,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        "http://localhost:3000/api/dashboard/stats",
+        `${API_BASE}/api/dashboard/stats`,
         {
           headers: getAuthHeaders(),
         }
@@ -362,7 +363,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const carregarResumoFinanceiro = async () => {
     try {
       const response = await fetch(
-        "http://localhost:3000/api/financeiro/resumo",
+        `${API_BASE}/api/financeiro/resumo`,
         {
           headers: getAuthHeaders(),
         }
@@ -395,7 +396,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.innerHTML = '<tr><td colspan="4">Carregando...</td></tr>';
     try {
       const response = await fetch(
-        "http://localhost:3000/api/financeiro/transacoes",
+        `${API_BASE}/api/financeiro/transacoes`,
         {
           headers: getAuthHeaders(),
         }
@@ -463,7 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const userRole = localStorage.getItem("user-role");
 
     try {
-      const response = await fetch("http://localhost:3000/api/pacientes", {
+      const response = await fetch(`${API_BASE}/api/pacientes`, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Falha ao carregar pacientes.");
@@ -479,7 +480,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (userRole === "admin" && terapeutasDisponiveis.length === 0) {
         try {
           const resp = await fetch(
-            "http://localhost:3000/api/terapeutas-lista",
+            `${API_BASE}/api/terapeutas-lista`,
             { headers: getAuthHeaders() }
           );
           terapeutasDisponiveis = await resp.json();
@@ -581,7 +582,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const listBody = document.getElementById("user-list-body");
     listBody.innerHTML = '<tr><td colspan="3">Carregando...</td></tr>';
     try {
-      const response = await fetch("http://localhost:3000/api/usuarios", {
+      const response = await fetch(`${API_BASE}/api/usuarios`, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Falha ao carregar usuários.");
@@ -630,7 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       try {
         const resp = await fetch(
-          `http://localhost:3000/api/usuarios/${userId}`,
+          `${API_BASE}/api/usuarios/${userId}`,
           {
             method: "DELETE",
             headers: getAuthHeaders(),
@@ -659,7 +660,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tipo_login = form.elements["tipo_login"].value;
 
     try {
-      const response = await fetch("http://localhost:3000/api/usuarios", {
+      const response = await fetch(`${API_BASE}/api/usuarios`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ nome, email, senha, tipo_login }),
@@ -682,7 +683,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const mostrarDetalhesPaciente = async (pacienteId) => {
     try {
       const response = await fetch(
-        `http://localhost:3000/api/pacientes/${pacienteId}`,
+        `${API_BASE}/api/pacientes/${pacienteId}`,
         {
           headers: getAuthHeaders(),
         }
@@ -746,7 +747,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const abrirFormularioEdicao = async (pacienteId) => {
     try {
       const response = await fetch(
-        `http://localhost:3000/api/pacientes/${pacienteId}`,
+        `${API_BASE}/api/pacientes/${pacienteId}`,
         {
           headers: getAuthHeaders(),
         }
@@ -807,7 +808,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        `http://localhost:3000/api/pacientes/${pacienteId}`,
+        `${API_BASE}/api/pacientes/${pacienteId}`,
         {
           method: "DELETE",
           headers: getAuthHeaders(),
@@ -828,7 +829,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const popularDropdownPacientes = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/pacientes", {
+      const response = await fetch(`${API_BASE}/api/pacientes`, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Falha ao buscar pacientes.");
@@ -853,7 +854,7 @@ document.addEventListener("DOMContentLoaded", () => {
       '<p class="info-message">Carregando sessões...</p>';
     try {
       const response = await fetch(
-        `http://localhost:3000/api/pacientes/${pacienteId}/sessoes`,
+        `${API_BASE}/api/pacientes/${pacienteId}/sessoes`,
         {
           headers: getAuthHeaders(),
         }
@@ -938,7 +939,7 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       events: async (fetchInfo, successCallback, failureCallback) => {
         try {
-          const response = await fetch("http://localhost:3000/api/sessoes", {
+          const response = await fetch(`${API_BASE}/api/sessoes`, {
             method: "GET",
             headers: getAuthHeaders(),
           });
@@ -982,7 +983,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const sessaoResponse = await fetch(
-        `http://localhost:3000/api/sessoes/${sessionId}`,
+        `${API_BASE}/api/sessoes/${sessionId}`,
         {
           headers: getAuthHeaders(),
         }
@@ -1040,7 +1041,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const abrirFormularioEdicaoSessao = async (sessaoId) => {
     try {
       const response = await fetch(
-        `http://localhost:3000/api/sessoes/${sessaoId}`,
+        `${API_BASE}/api/sessoes/${sessaoId}`,
         {
           headers: getAuthHeaders(),
         }
@@ -1090,7 +1091,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     try {
       const response = await fetch(
-        `http://localhost:3000/api/sessoes/${sessaoId}`,
+        `${API_BASE}/api/sessoes/${sessaoId}`,
         {
           method: "DELETE",
           headers: getAuthHeaders(),
@@ -1115,7 +1116,7 @@ document.addEventListener("DOMContentLoaded", () => {
     listDiv.innerHTML = "<p>Carregando...</p>";
     try {
       const response = await fetch(
-        "http://localhost:3000/api/avaliacoes/recebidas",
+        `${API_BASE}/api/avaliacoes/recebidas`,
         {
           headers: getAuthHeaders(),
         }
@@ -1154,7 +1155,7 @@ document.addEventListener("DOMContentLoaded", () => {
     listDiv.innerHTML = "<p>Carregando...</p>";
     try {
       const response = await fetch(
-        "http://localhost:3000/api/avaliacoes/pendentes",
+        `${API_BASE}/api/avaliacoes/pendentes`,
         {
           headers: getAuthHeaders(),
         }
@@ -1204,7 +1205,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        "http://localhost:3000/api/relatorios/financeiro",
+        `${API_BASE}/api/relatorios/financeiro`,
         {
           method: "POST",
           headers: getAuthHeaders(),
@@ -1485,7 +1486,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const [terapeutasRes, loginsRes] = await Promise.all([
-        fetch("http://localhost:3000/api/terapeutas-lista", {
+        fetch(`${API_BASE}/api/terapeutas-lista`, {
           headers: getAuthHeaders(),
         }),
       ]);
@@ -1533,7 +1534,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
           const assignResp = await fetch(
-            `http://localhost:3000/api/pacientes/${pacienteId}/atribuir`,
+            `${API_BASE}/api/pacientes/${pacienteId}/atribuir`,
             {
               method: "PUT",
               headers: getAuthHeaders(),
@@ -1684,8 +1685,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const id = pacienteIdInput.value;
       const method = id ? "PUT" : "POST";
       const url = id
-        ? `http://localhost:3000/api/pacientes/${id}`
-        : "http://localhost:3000/api/pacientes";
+        ? `${API_BASE}/api/pacientes/${id}`
+        : `${API_BASE}/api/pacientes`;
 
       try {
         const response = await fetch(url, {
@@ -1735,8 +1736,8 @@ document.addEventListener("DOMContentLoaded", () => {
       };
       const method = sessaoId ? "PUT" : "POST";
       const url = sessaoId
-        ? `http://localhost:3000/api/sessoes/${sessaoId}`
-        : "http://localhost:3000/api/sessoes";
+        ? `${API_BASE}/api/sessoes/${sessaoId}`
+        : `${API_BASE}/api/sessoes`;
 
       try {
         const response = await fetch(url, {

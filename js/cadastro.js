@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        "http://localhost:3000/api/auth/registrar-paciente",
+        "https://aba-aos0.onrender.com/api/auth/registrar-paciente",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
