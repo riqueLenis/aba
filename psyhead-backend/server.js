@@ -1412,17 +1412,12 @@ app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
   }
 });
 
-// Alvos ABA (modelos reutilizáveis de comportamento-alvo)
 app.get("/api/aba/alvos", verificarToken, async (req, res) => {
-  const { id: userId } = req.terapeuta;
-
   try {
     const result = await pool.query(
       `SELECT id, label
        FROM aba_alvos
-       WHERE terapeuta_id = $1
-       ORDER BY created_at ASC`,
-      [userId]
+       ORDER BY created_at ASC`
     );
     res.status(200).json(result.rows);
   } catch (error) {
