@@ -732,6 +732,8 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       carregarMedicacoes(pacienteId);
 
+
+
       pacientesViewList.classList.add("hidden");
       pacientesViewForm.classList.add("hidden");
       pacientesViewDetail.classList.remove("hidden");
@@ -874,7 +876,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const statusClass =
           s.status_pagamento === "Pago" ? "status-pago" : "status-pendente";
         const cardHTML = `
-                    <div class="session-card">
+                    <div class="session-card" data-session-id="${s.id}">
                         <div class="session-card-info">
                             <strong>Data da Sessão</strong>
                             <p>${dataFormatada}</p>
@@ -888,7 +890,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             <p><span class="status-badge ${statusClass}">${s.status_pagamento}</span></p>
                         </div>
                         <div class="session-card-actions">
-                            <a href="#" class="btn btn-secondary btn-sm">Ver Detalhes</a>
+                            <a href="#" class="btn btn-secondary btn-sm view-session-btn">Ver Detalhes</a>
                         </div>
                     </div>
                 `;
@@ -900,6 +902,19 @@ document.addEventListener("DOMContentLoaded", () => {
         '<p class="error-message">Erro ao carregar sessões.</p>';
     }
   };
+  // Delegação de evento para abrir detalhes da sessão via botão "Ver Detalhes"
+  if (sessionListContainer) {
+    sessionListContainer.addEventListener("click", (event) => {
+      const btn = event.target.closest(".view-session-btn");
+      if (!btn) return;
+      event.preventDefault();
+      const card = btn.closest(".session-card");
+      if (!card) return;
+      const sessionId = card.dataset.sessionId;
+      if (!sessionId) return;
+      abrirModalDetalhesSessao(sessionId);
+    });
+  }
   const inicializarCalendario = () => {
     const calendarEl = document.getElementById("calendar");
 
@@ -1005,42 +1020,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 }</span></div>
             </div>
         `;
-      const avaliacaoResponse = await fetch(
-        `http://localhost:3000/api/sessoes/${sessionId}/avaliacao`,
-        {
-          headers: getAuthHeaders(),
-        }
-      );
+      
+      // Parte de avaliação removida conforme solicitado
 
-      let avaliacaoHTML = "";
-      if (avaliacaoResponse.ok) {
-        const avaliacao = await avaliacaoResponse.json();
-        avaliacaoHTML = `
-                <div class="detail-section">
-                    <h4 class="detail-section-title">Avaliação Recebida</h4>
-                    <div class="detail-grid">
-                        <div class="detail-item"><strong>Nota Geral</strong><span>${"⭐".repeat(
-                          avaliacao.nota_geral
-                        )}</span></div>
-                        <div class="detail-item full-width"><strong>Comentários Positivos</strong><span>${
-                          avaliacao.comentarios_positivos || "Não informado."
-                        }</span></div>
-                        <div class="detail-item full-width"><strong>Pontos a Melhorar</strong><span>${
-                          avaliacao.pontos_a_melhorar || "Não informado."
-                        }</span></div>
-                    </div>
-                </div>
-            `;
-      } else {
-        avaliacaoHTML = `
-                <div class="detail-section">
-                    <h4 class="detail-section-title">Avaliação</h4>
-                    <p>Esta sessão ainda não foi avaliada.</p>
-                </div>
-            `;
-      }
-
-      modalBody.innerHTML = sessaoHTML + avaliacaoHTML;
+      modalBody.innerHTML = sessaoHTML;
       modalFooter.innerHTML = `
             <button id="edit-session-btn" class="btn btn-primary btn-sm">Editar</button>
             <button id="delete-session-btn" class="btn btn-danger btn-sm">Excluir</button>
@@ -1427,6 +1410,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   sidebarLinks.forEach((link) => {
     link.addEventListener("click", (event) => {
+      // Deixa o link ABA+ navegar para a página aba.html normalmente
+      if (link.id === "aba-link") {
+        return;
+      }
       event.preventDefault();
       const targetId = link.id.replace("-link", "-section");
       activateSection(targetId, link.id);

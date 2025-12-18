@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PsyHead - ABA+</title>
+    <meta
+      name="description"
+      content="Módulo ABA+ do PsyHead para gestão de programas e evolução terapêutica"
+    />
+    <link rel="icon" href="assets/logo.png" type="image/x-icon" />
+    <link rel="stylesheet" href="css/aba.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="brand">ABA+</div>
+        <nav class="nav">
+          <a href="#/" data-route>Dashboard</a>
+          <a href="#/programs" data-route>Programas</a>
+          <a href="#/performance" data-route>Desempenho</a>
+          <a href="#/evolution" data-route>Evolução</a>
+          <a href="#/plans" data-route>Planos Terapêuticos</a>
+          <a href="index.html">Voltar ao PsyHead</a>
+        </nav>
+      </aside>
+      <main class="content">
+        <header class="page-header">
+          <h1 id="page-title">Dashboard</h1>
+        </header>
+        <section id="view" class="view"></section>
+      </main>
+    </div>
+
+    <div id="modal-backdrop" class="modal-backdrop hidden"></div>
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
+    <div id="toast" class="toast hidden"></div>
+    <script src="js/app.js"></script>
+  </body>
+</html>

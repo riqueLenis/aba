@@ -142,6 +142,7 @@ app.post(
   [verificarToken, verificarAdmin],
   async (req, res) => {
     const { nome, email, senha, tipo_login } = req.body;
+    const criadorId = req.terapeuta.id;
 
     if (!nome || !email || !senha || !tipo_login) {
       return res
@@ -155,30 +156,54 @@ app.post(
     ) {
       return res
         .status(400)
-        .json({ error: 'O tipo de login deve ser "admin" ou "terapeuta".' });
+        .json({ error: 'O tipo de login deve ser "admin", "terapeuta" ou "paciente".' });
     }
 
+    const client = await pool.connect();
+
     try {
+      await client.query("BEGIN");
+
       const senhaHash = await bcrypt.hash(senha, 10);
       const queryText =
         "INSERT INTO terapeutas (nome, email, senha_hash, tipo_login) VALUES ($1, $2, $3, $4) RETURNING id, email, nome, tipo_login;";
-      const result = await pool.query(queryText, [
+      const result = await client.query(queryText, [
         nome,
         email,
         senhaHash,
         tipo_login,
       ]);
+      const newUserId = result.rows[0].id;
+
+      if (tipo_login === "paciente") {
+        // Se quem cria é admin ou terapeuta, ele se torna o "dono" (terapeuta_id) do paciente
+        // Isso garante que o admin veja o paciente que acabou de criar
+        const terapeutaDonoId = criadorId; 
+        const pacienteQuery =
+          "INSERT INTO pacientes (nome_completo, email, usuario_id, terapeuta_id) VALUES ($1, $2, $3, $4);";
+        await client.query(pacienteQuery, [
+          nome,
+          email,
+          newUserId,
+          terapeutaDonoId,
+        ]);
+      }
+
+      await client.query("COMMIT");
 
       res.status(201).json({
         message: "Usuário criado com sucesso!",
         usuario: result.rows[0],
       });
     } catch (error) {
+      await client.query("ROLLBACK");
       console.error("Erro ao criar usuário:", error);
       if (error.code === "23505") {
         return res.status(409).json({ error: "Este e-mail já está em uso." });
       }
       res.status(500).json({ error: "Erro interno do servidor." });
+    } finally {
+      client.release();
     }
   }
 );
@@ -250,7 +275,7 @@ app.post("/api/auth/registrar-paciente", async (req, res) => {
 app.post("/api/pacientes", verificarToken, async (req, res) => {
   const {
     nome_completo,
-    dataNascimento,
+    data_nascimento,
     sexo,
     cpf,
     rg,
@@ -265,8 +290,8 @@ app.post("/api/pacientes", verificarToken, async (req, res) => {
     bairro,
     cidade,
     estado,
-    motivacaoConsulta,
-    historicoMedico,
+    motivacao_consulta,
+    historico_medico,
   } = req.body;
 
   const terapeutaId = req.terapeuta.id;
@@ -293,7 +318,7 @@ app.post("/api/pacientes", verificarToken, async (req, res) => {
         `;
     const values = [
       nome_completo,
-      dataNascimento,
+      data_nascimento,
       sexo,
       cpf,
       rg,
@@ -308,8 +333,8 @@ app.post("/api/pacientes", verificarToken, async (req, res) => {
       bairro,
       cidade,
       estado,
-      motivacaoConsulta,
-      historicoMedico,
+      motivacao_consulta,
+      historico_medico,
       terapeutaId,
     ];
 
@@ -335,27 +360,15 @@ app.get("/api/dashboard/stats", verificarToken, async (req, res) => {
     });
   }
 
-  let queryText;
-  let values = [];
-
-  if (role === "admin") {
-    queryText = `
-            SELECT
-                (SELECT COUNT(*) FROM pacientes) AS pacientes_ativos,
-                (SELECT COUNT(*) FROM sessoes WHERE data_sessao::date = CURRENT_DATE) AS sessoes_hoje,
-                (SELECT COALESCE(SUM(valor_sessao), 0) FROM sessoes WHERE status_pagamento = 'Pago' AND data_sessao >= DATE_TRUNC('month', CURRENT_DATE)) AS faturamento_mes,
-                (SELECT COUNT(s.id) FROM sessoes s LEFT JOIN avaliacoes a ON s.id = a.sessao_id WHERE s.data_sessao < NOW() AND a.id IS NULL) AS avaliacoes_pendentes;
-        `;
-  } else {
-    values = [userId];
-    queryText = `
+  // Agora ADMIN e TERAPEUTA se comportam igual: só veem seus próprios dados
+  const values = [userId];
+  const queryText = `
             SELECT
                 (SELECT COUNT(*) FROM pacientes WHERE terapeuta_id = $1) AS pacientes_ativos,
                 (SELECT COUNT(*) FROM sessoes s JOIN pacientes p ON s.paciente_id = p.id WHERE s.data_sessao::date = CURRENT_DATE AND p.terapeuta_id = $1) AS sessoes_hoje,
                 (SELECT COALESCE(SUM(s.valor_sessao), 0) FROM sessoes s JOIN pacientes p ON s.paciente_id = p.id WHERE s.status_pagamento = 'Pago' AND s.data_sessao >= DATE_TRUNC('month', CURRENT_DATE) AND p.terapeuta_id = $1) AS faturamento_mes,
                 (SELECT COUNT(s.id) FROM sessoes s JOIN pacientes p ON s.paciente_id = p.id LEFT JOIN avaliacoes a ON s.id = a.sessao_id WHERE s.data_sessao < NOW() AND a.id IS NULL AND p.terapeuta_id = $1) AS avaliacoes_pendentes;
         `;
-  }
 
   try {
     const result = await pool.query(queryText, values);
@@ -373,14 +386,17 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
   let queryText = "SELECT * FROM pacientes";
   let values = [];
 
-  if (role === "terapeuta") {
+  if (role === "terapeuta" || role === "admin") {
+    // Admin agora também filtra por terapeuta_id
     queryText += " WHERE terapeuta_id = $1 ORDER BY nome_completo;";
     values = [userId];
   } else if (role === "paciente") {
     queryText += " WHERE usuario_id = $1;";
     values = [userId];
   } else {
-    queryText += " ORDER BY nome_completo;";
+    // Fallback seguro, embora não deva acontecer
+    queryText += " WHERE terapeuta_id = $1 ORDER BY nome_completo;";
+    values = [userId];
   }
 
   try {
@@ -943,7 +959,7 @@ app.get("/api/sessoes", verificarToken, async (req, res) => {
 
   let values = [];
 
-  if (role === "terapeuta") {
+  if (role === "terapeuta" || role === "admin") {
     queryText += " WHERE p.terapeuta_id = $1";
     values = [userId];
   } else if (role === "paciente") {
@@ -1107,26 +1123,29 @@ app.delete("/api/medicacoes/:id", verificarToken, async (req, res) => {
 
 //rota pro resumo financeiro do mes atual
 app.get("/api/financeiro/resumo", verificarToken, async (req, res) => {
+  const { id: userId } = req.terapeuta;
   console.log("Buscando resumo financeiro do mês atual");
   try {
     const queryText = `
       SELECT
         -- Soma o valor da sessão APENAS se o status for 'Pago'
-        COALESCE(SUM(CASE WHEN status_pagamento = 'Pago' THEN valor_sessao ELSE 0 END), 0) AS faturamento_mes,
+        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN s.valor_sessao ELSE 0 END), 0) AS faturamento_mes,
         
         -- Soma o valor da sessão APENAS se o status for 'Pendente'
-        COALESCE(SUM(CASE WHEN status_pagamento = 'Pendente' THEN valor_sessao ELSE 0 END), 0) AS a_receber,
+        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pendente' THEN s.valor_sessao ELSE 0 END), 0) AS a_receber,
         
         -- Conta quantas sessões foram pagas
-        COUNT(CASE WHEN status_pagamento = 'Pago' THEN 1 END) AS sessoes_pagas,
+        COUNT(CASE WHEN s.status_pagamento = 'Pago' THEN 1 END) AS sessoes_pagas,
         
         -- Conta quantas sessões estão pendentes
-        COUNT(CASE WHEN status_pagamento = 'Pendente' THEN 1 END) AS sessoes_pendentes
+        COUNT(CASE WHEN s.status_pagamento = 'Pendente' THEN 1 END) AS sessoes_pendentes
 
-      FROM sessoes
-      WHERE data_sessao >= DATE_TRUNC('month', CURRENT_DATE); -- Filtra apenas para o mês corrente
+      FROM sessoes s
+      JOIN pacientes p ON s.paciente_id = p.id
+      WHERE s.data_sessao >= DATE_TRUNC('month', CURRENT_DATE)
+      AND p.terapeuta_id = $1; -- Filtra apenas para o admin/terapeuta logado
     `;
-    const result = await pool.query(queryText);
+    const result = await pool.query(queryText, [userId]);
     res.status(200).json(result.rows[0]);
   } catch (error) {
     console.error("Erro ao buscar resumo financeiro:", error);
@@ -1138,6 +1157,7 @@ app.get("/api/financeiro/resumo", verificarToken, async (req, res) => {
 
 //rota para as transacoes recentes
 app.get("/api/financeiro/transacoes", verificarToken, async (req, res) => {
+  const { id: userId } = req.terapeuta;
   console.log("Buscando transações financeiras recentes");
   try {
     const queryText = `
@@ -1149,10 +1169,11 @@ app.get("/api/financeiro/transacoes", verificarToken, async (req, res) => {
         p.nome_completo AS paciente_nome
       FROM sessoes s
       JOIN pacientes p ON s.paciente_id = p.id
+      WHERE p.terapeuta_id = $1
       ORDER BY s.data_sessao DESC
       LIMIT 10; -- Pega as 10 últimas sessões
     `;
-    const result = await pool.query(queryText);
+    const result = await pool.query(queryText, [userId]);
     res.status(200).json(result.rows);
   } catch (error) {
     console.error("Erro ao buscar transações:", error);
@@ -1164,6 +1185,7 @@ app.get("/api/financeiro/transacoes", verificarToken, async (req, res) => {
 //relatorios rota geração
 app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
   const { data_inicio, data_fim } = req.body;
+  const { id: userId } = req.terapeuta;
   console.log(`Gerando relatório financeiro de ${data_inicio} a ${data_fim}`);
 
   if (!data_inicio || !data_fim) {
@@ -1175,10 +1197,12 @@ app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
   try {
     const queryResumo = `
             SELECT
-                COALESCE(SUM(CASE WHEN status_pagamento = 'Pago' THEN valor_sessao ELSE 0 END), 0) AS faturamento_total,
+                COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN s.valor_sessao ELSE 0 END), 0) AS faturamento_total,
                 COUNT(*) AS total_sessoes
-            FROM sessoes
-            WHERE data_sessao::date BETWEEN $1 AND $2;
+            FROM sessoes s
+            JOIN pacientes p ON s.paciente_id = p.id
+            WHERE s.data_sessao::date BETWEEN $1 AND $2
+            AND p.terapeuta_id = $3;
         `;
 
     const queryTransacoes = `
@@ -1186,13 +1210,19 @@ app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
             FROM sessoes s
             JOIN pacientes p ON s.paciente_id = p.id
             WHERE s.data_sessao::date BETWEEN $1 AND $2
+            AND p.terapeuta_id = $3
             ORDER BY s.data_sessao DESC;
         `;
 
-    const resumoResult = await pool.query(queryResumo, [data_inicio, data_fim]);
+    const resumoResult = await pool.query(queryResumo, [
+      data_inicio,
+      data_fim,
+      userId,
+    ]);
     const transacoesResult = await pool.query(queryTransacoes, [
       data_inicio,
       data_fim,
+      userId,
     ]);
 
     res.status(200).json({
@@ -1207,75 +1237,515 @@ app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
   }
 });
 
-//rota pra gereciar equipe
-app.post(
-  "/api/usuarios",
-  [verificarToken, verificarAdmin],
-  async (req, res) => {
-    const { nome, email, senha, tipo_login } = req.body;
-    const criadorId = req.terapeuta.id;
-    const criadorRole = req.terapeuta.role;
+// ============================
+// Rotas ABA+ (Programas, Sessões, Evoluções, Planos)
+// ============================
 
-    if (!nome || !email || !senha || !tipo_login) {
-      return res
-        .status(400)
-        .json({ error: "Todos os campos são obrigatórios." });
-    }
+// Programas ABA
+app.get("/api/aba/programas", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { pacienteId } = req.query;
 
-    if (
-      tipo_login !== "admin" &&
-      tipo_login !== "terapeuta" &&
-      tipo_login !== "paciente"
-    ) {
-      return res.status(400).json({ error: "Tipo de login inválido." });
-    }
+  let queryText = `
+    SELECT ap.*, p.nome_completo AS paciente_nome
+    FROM aba_programas ap
+    JOIN pacientes p ON ap.paciente_id = p.id
+  `;
+  let values = [];
 
-    const client = await pool.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      const senhaHash = await bcrypt.hash(senha, 10);
-      const userQuery =
-        "INSERT INTO terapeutas (nome, email, senha_hash, tipo_login) VALUES ($1, $2, $3, $4) RETURNING id;";
-      const userResult = await client.query(userQuery, [
-        nome,
-        email,
-        senhaHash,
-        tipo_login,
-      ]);
-      const newUserId = userResult.rows[0].id;
-
-      if (tipo_login === "paciente") {
-        const terapeutaDonoId = criadorRole === "terapeuta" ? criadorId : null;
-        const pacienteQuery =
-          "INSERT INTO pacientes (nome_completo, email, usuario_id, terapeuta_id) VALUES ($1, $2, $3, $4);";
-        await client.query(pacienteQuery, [
-          nome,
-          email,
-          newUserId,
-          terapeutaDonoId,
-        ]);
-      }
-
-      await client.query("COMMIT");
-
-      res.status(201).json({
-        message: "Usuário criado com sucesso!",
-        usuario: { id: newUserId, nome, email, tipo_login },
-      });
-    } catch (error) {
-      await client.query("ROLLBACK");
-      console.error("Erro ao criar usuário:", error);
-      if (error.code === "23505") {
-        return res.status(409).json({ error: "Este e-mail já está em uso." });
-      }
-      res.status(500).json({ error: "Erro interno do servidor." });
-    } finally {
-      client.release();
-    }
+  if (role === "terapeuta" || role === "admin") {
+    queryText += " WHERE p.terapeuta_id = $1";
+    values = [userId];
+  } else if (role === "paciente") {
+    queryText += " WHERE p.usuario_id = $1";
+    values = [userId];
   }
-);
+
+  if (pacienteId) {
+    const idx = values.length + 1;
+    queryText += values.length ? ` AND ap.paciente_id = $${idx}` : ` WHERE ap.paciente_id = $${idx}`;
+    values.push(pacienteId);
+  }
+
+  try {
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar programas ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/programas", verificarToken, async (req, res) => {
+  const {
+    patientId,
+    name,
+    code,
+    description,
+    category,
+    targetBehavior,
+    currentCriteria,
+    status,
+  } = req.body;
+
+  if (!patientId || !name) {
+    return res
+      .status(400)
+      .json({ error: "Paciente e nome do programa são obrigatórios." });
+  }
+
+  try {
+    const queryText = `
+      INSERT INTO aba_programas (
+        paciente_id, codigo, nome, categoria, descricao,
+        comportamento_alvo, criterio_atual, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *;
+    `;
+    const values = [
+      patientId,
+      code || null,
+      name,
+      category || "communication",
+      description || null,
+      targetBehavior || null,
+      currentCriteria || null,
+      status || "active",
+    ];
+    const result = await pool.query(queryText, values);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar programa ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.put("/api/aba/programas/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const {
+    patientId,
+    name,
+    code,
+    description,
+    category,
+    targetBehavior,
+    currentCriteria,
+    status,
+  } = req.body;
+
+  if (!patientId || !name) {
+    return res
+      .status(400)
+      .json({ error: "Paciente e nome do programa são obrigatórios." });
+  }
+
+  try {
+    const queryText = `
+      UPDATE aba_programas SET
+        paciente_id = $1,
+        codigo = $2,
+        nome = $3,
+        categoria = $4,
+        descricao = $5,
+        comportamento_alvo = $6,
+        criterio_atual = $7,
+        status = $8,
+        atualizado_em = NOW()
+      WHERE id = $9
+      RETURNING *;
+    `;
+    const values = [
+      patientId,
+      code || null,
+      name,
+      category || "communication",
+      description || null,
+      targetBehavior || null,
+      currentCriteria || null,
+      status || "active",
+      id,
+    ];
+    const result = await pool.query(queryText, values);
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Programa ABA não encontrado." });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao atualizar programa ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "DELETE FROM aba_programas WHERE id = $1 RETURNING id",
+      [id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Programa ABA não encontrado." });
+    }
+    res.status(200).json({ message: "Programa ABA excluído com sucesso." });
+  } catch (error) {
+    console.error("Erro ao excluir programa ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+// Sessões ABA
+app.get("/api/aba/sessoes", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { pacienteId, programaId } = req.query;
+
+  let queryText = `
+    SELECT s.*
+    FROM aba_sessoes s
+    JOIN pacientes p ON s.paciente_id = p.id
+  `;
+  let values = [];
+
+  if (role === "terapeuta" || role === "admin") {
+    queryText += " WHERE p.terapeuta_id = $1";
+    values = [userId];
+  } else if (role === "paciente") {
+    queryText += " WHERE p.usuario_id = $1";
+    values = [userId];
+  }
+
+  if (pacienteId) {
+    const idx = values.length + 1;
+    queryText += values.length ? ` AND s.paciente_id = $${idx}` : ` WHERE s.paciente_id = $${idx}`;
+    values.push(pacienteId);
+  }
+
+  if (programaId) {
+    const idx = values.length + 1;
+    queryText += values.length ? ` AND s.programa_id = $${idx}` : ` WHERE s.programa_id = $${idx}`;
+    values.push(programaId);
+  }
+
+  try {
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar sessões ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/sessoes", verificarToken, async (req, res) => {
+  const {
+    programId,
+    patientId,
+    therapistId,
+    date,
+    trials,
+    successes,
+    notes,
+  } = req.body;
+
+  if (!programId || !patientId || !date || trials == null || successes == null) {
+    return res.status(400).json({
+      error: "Programa, paciente, data, tentativas e acertos são obrigatórios.",
+    });
+  }
+
+  try {
+    const queryText = `
+      INSERT INTO aba_sessoes (
+        programa_id, paciente_id, terapeuta_id,
+        data_sessao, tentativas, acertos, observacoes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *;
+    `;
+    const values = [
+      programId,
+      patientId,
+      therapistId || null,
+      date,
+      trials,
+      successes,
+      notes || null,
+    ];
+    const result = await pool.query(queryText, values);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar sessão ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.delete("/api/aba/sessoes/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "DELETE FROM aba_sessoes WHERE id = $1 RETURNING id",
+      [id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Sessão ABA não encontrada." });
+    }
+    res.status(200).json({ message: "Sessão ABA excluída com sucesso." });
+  } catch (error) {
+    console.error("Erro ao excluir sessão ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+// Evoluções de Critério
+app.get("/api/aba/evolucoes", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { pacienteId, programaId } = req.query;
+
+  let queryText = `
+    SELECT e.*
+    FROM aba_evolucoes_criterio e
+    JOIN aba_programas ap ON e.programa_id = ap.id
+    JOIN pacientes p ON ap.paciente_id = p.id
+  `;
+  let values = [];
+
+  if (role === "terapeuta" || role === "admin") {
+    queryText += " WHERE p.terapeuta_id = $1";
+    values = [userId];
+  } else if (role === "paciente") {
+    queryText += " WHERE p.usuario_id = $1";
+    values = [userId];
+  }
+
+  if (pacienteId) {
+    const idx = values.length + 1;
+    queryText += values.length ? ` AND ap.paciente_id = $${idx}` : ` WHERE ap.paciente_id = $${idx}`;
+    values.push(pacienteId);
+  }
+
+  if (programaId) {
+    const idx = values.length + 1;
+    queryText += values.length ? ` AND e.programa_id = $${idx}` : ` WHERE e.programa_id = $${idx}`;
+    values.push(programaId);
+  }
+
+  try {
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar evoluções ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/evolucoes", verificarToken, async (req, res) => {
+  const { programId, previousCriteria, newCriteria, reason, changedAt } =
+    req.body;
+
+  if (!programId || !previousCriteria || !newCriteria || !reason) {
+    return res
+      .status(400)
+      .json({ error: "Programa, critérios e motivo são obrigatórios." });
+  }
+
+  try {
+    const queryText = `
+      INSERT INTO aba_evolucoes_criterio (
+        programa_id, criterio_anterior, novo_criterio, motivo, data_mudanca
+      ) VALUES ($1, $2, $3, $4, $5)
+      RETURNING *;
+    `;
+    const values = [
+      programId,
+      previousCriteria,
+      newCriteria,
+      reason,
+      changedAt || new Date().toISOString(),
+    ];
+    const result = await pool.query(queryText, values);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar evolução de critério ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+// Planos Terapêuticos ABA
+app.get("/api/aba/planos", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { pacienteId } = req.query;
+
+  let whereClause = "";
+  let values = [];
+
+  if (role === "terapeuta" || role === "admin") {
+    whereClause = "WHERE p.terapeuta_id = $1";
+    values = [userId];
+  } else if (role === "paciente") {
+    whereClause = "WHERE p.usuario_id = $1";
+    values = [userId];
+  }
+
+  if (pacienteId) {
+    const idx = values.length + 1;
+    whereClause += values.length ? ` AND pt.paciente_id = $${idx}` : ` WHERE pt.paciente_id = $${idx}`;
+    values.push(pacienteId);
+  }
+
+  const queryText = `
+    SELECT
+      pt.id,
+      pt.paciente_id,
+      pt.titulo,
+      pt.data_inicio,
+      pt.data_termino,
+      pt.status,
+      pt.criado_em,
+      pt.atualizado_em,
+      COALESCE(
+        ARRAY_AGG(m.descricao ORDER BY m.ordem)
+        FILTER (WHERE m.id IS NOT NULL),
+        ARRAY[]::text[]
+      ) AS goals
+    FROM aba_planos_terapeuticos pt
+    JOIN pacientes p ON pt.paciente_id = p.id
+    LEFT JOIN aba_plano_metas m ON m.plano_id = pt.id
+    ${whereClause}
+    GROUP BY pt.id
+    ORDER BY pt.data_inicio DESC;
+  `;
+
+  try {
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar planos ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/planos", verificarToken, async (req, res) => {
+  const { patientId, title, goals, startDate, endDate, status } = req.body;
+
+  if (!patientId || !title || !startDate) {
+    return res.status(400).json({
+      error: "Paciente, título e data de início são obrigatórios.",
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const planResult = await client.query(
+      `
+        INSERT INTO aba_planos_terapeuticos (
+          paciente_id, titulo, data_inicio, data_termino, status
+        ) VALUES ($1, $2, $3, $4, $5)
+        RETURNING *;
+      `,
+      [patientId, title, startDate, endDate || null, status || "draft"]
+    );
+
+    const plan = planResult.rows[0];
+    const metas = Array.isArray(goals) ? goals : [];
+
+    for (let i = 0; i < metas.length; i++) {
+      const g = (metas[i] || "").trim();
+      if (!g) continue;
+      await client.query(
+        "INSERT INTO aba_plano_metas (plano_id, ordem, descricao) VALUES ($1, $2, $3)",
+        [plan.id, i + 1, g]
+      );
+    }
+
+    await client.query("COMMIT");
+    res.status(201).json({ ...plan, goals: metas.filter((g) => g && g.trim()) });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Erro ao criar plano ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  } finally {
+    client.release();
+  }
+});
+
+app.put("/api/aba/planos/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { patientId, title, goals, startDate, endDate, status } = req.body;
+
+  if (!patientId || !title || !startDate) {
+    return res.status(400).json({
+      error: "Paciente, título e data de início são obrigatórios.",
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const planResult = await client.query(
+      `
+        UPDATE aba_planos_terapeuticos SET
+          paciente_id = $1,
+          titulo = $2,
+          data_inicio = $3,
+          data_termino = $4,
+          status = $5,
+          atualizado_em = NOW()
+        WHERE id = $6
+        RETURNING *;
+      `,
+      [patientId, title, startDate, endDate || null, status || "draft", id]
+    );
+
+    if (!planResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Plano ABA não encontrado." });
+    }
+
+    await client.query("DELETE FROM aba_plano_metas WHERE plano_id = $1", [
+      id,
+    ]);
+
+    const metas = Array.isArray(goals) ? goals : [];
+    for (let i = 0; i < metas.length; i++) {
+      const g = (metas[i] || "").trim();
+      if (!g) continue;
+      await client.query(
+        "INSERT INTO aba_plano_metas (plano_id, ordem, descricao) VALUES ($1, $2, $3)",
+        [id, i + 1, g]
+      );
+    }
+
+    await client.query("COMMIT");
+    const plan = planResult.rows[0];
+    res
+      .status(200)
+      .json({ ...plan, goals: metas.filter((g) => g && g.trim()) });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Erro ao atualizar plano ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete("/api/aba/planos/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "DELETE FROM aba_planos_terapeuticos WHERE id = $1 RETURNING id",
+      [id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Plano ABA não encontrado." });
+    }
+    res.status(200).json({ message: "Plano ABA excluído com sucesso." });
+  } catch (error) {
+    console.error("Erro ao excluir plano ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Servidor do PsyHead rodando na porta ${PORT}`);
