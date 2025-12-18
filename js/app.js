@@ -9,6 +9,7 @@ const Store = (() => {
     sessions: [],
     therapeuticPlans: [],
     criteriaEvolutions: [],
+    targets: [], // modelos de alvos ABA salvos no backend
   };
 
   const read = () => {
@@ -91,6 +92,33 @@ const toast = (msg) => {
   setTimeout(() => t.classList.add("hidden"), 2200);
 };
 
+// Armazenamento local de modelos personalizados de programas e alvos
+const CUSTOM_TEMPLATES_KEY = "aba-plus-custom-templates";
+const loadCustomTemplates = () => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object") {
+      return { programs: [], targets: [] };
+    }
+    return {
+      programs: Array.isArray(parsed.programs) ? parsed.programs : [],
+      targets: Array.isArray(parsed.targets) ? parsed.targets : [],
+    };
+  } catch {
+    return { programs: [], targets: [] };
+  }
+};
+
+const saveCustomTemplates = (data) => {
+  const base = loadCustomTemplates();
+  const next = {
+    programs: Array.isArray(data.programs) ? data.programs : base.programs,
+    targets: Array.isArray(data.targets) ? data.targets : base.targets,
+  };
+  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(next));
+};
+
 // Modal
 const Modal = (() => {
   const wrap = $("#modal");
@@ -144,6 +172,7 @@ const syncFromBackend = async () => {
       sessionsRes,
       evolutionsRes,
       plansRes,
+      targetsRes,
     ] = await Promise.all([
       fetch(`${API_BASE}/api/pacientes`, { headers }),
       fetch(`${API_BASE}/api/terapeutas-lista`, { headers }).catch(() => null),
@@ -151,6 +180,7 @@ const syncFromBackend = async () => {
       fetch(`${API_BASE}/api/aba/sessoes`, { headers }).catch(() => null),
       fetch(`${API_BASE}/api/aba/evolucoes`, { headers }).catch(() => null),
       fetch(`${API_BASE}/api/aba/planos`, { headers }).catch(() => null),
+      fetch(`${API_BASE}/api/aba/alvos`, { headers }).catch(() => null),
     ]);
 
     const current = Store.get();
@@ -237,6 +267,13 @@ const syncFromBackend = async () => {
       }));
     }
 
+    // Alvos ABA (modelos)
+    let targets = current.targets || [];
+    if (targetsRes && targetsRes.ok) {
+      const data = await targetsRes.json();
+      targets = data.map((t) => ({ id: String(t.id), label: t.label }));
+    }
+
     Store.set((s) => ({
       ...s,
       patients,
@@ -245,6 +282,7 @@ const syncFromBackend = async () => {
       sessions,
       criteriaEvolutions,
       therapeuticPlans,
+      targets,
     }));
   } catch (error) {
     console.error("ABA+: erro ao sincronizar com backend", error);
@@ -930,22 +968,46 @@ const Views = {
     };
 
     const openForm = (program) => {
-      const { patients } = Store.get();
+      const { patients, targets } = Store.get();
+      const custom = loadCustomTemplates();
+
+      const templateOptions = [
+        ...PROGRAM_TEMPLATES.map((t) => [
+          t.code,
+          `${t.name} - Código: ${t.code}`,
+        ]),
+        ...custom.programs.map((name) => [
+          `custom-prog:${name}`,
+          `${name} (personalizado)`,
+        ]),
+      ];
+
       const templateSel = Select(
-        PROGRAM_TEMPLATES.map((t) => [t.code, `${t.name} - Código: ${t.code}`]),
+        templateOptions,
         program?.code || "",
         (v) => {
           const tpl = PROGRAM_TEMPLATES.find((t) => t.code === v);
           if (tpl) {
             name.value = tpl.name;
+            return;
+          }
+          if (v && v.startsWith("custom-prog:")) {
+            const customName = v.replace("custom-prog:", "");
+            name.value = customName;
           }
         },
         "Selecione um programa..."
       );
+
       const targetsSel = Select(
-        [],
+        targets.map((t) => [t.id, t.label]),
         "",
-        () => {},
+        (v) => {
+          const found = targets.find((t) => t.id === v);
+          if (found) {
+            target.value = found.label;
+          }
+        },
         "Selecione um alvo..."
       );
       const patientSel = Select(
@@ -991,9 +1053,96 @@ const Views = {
         (v) => (status.value = v)
       );
 
+      const newProgramInput = el("input", {
+        class: "input",
+        placeholder: "Digite um programa para salvar na lista",
+      });
+      const saveProgramBtn = el(
+        "button",
+        {
+          class: "btn secondary mt-1",
+          onclick: () => {
+            const v = newProgramInput.value.trim();
+            if (!v) return toast("Informe um nome de programa para salvar");
+            const data = loadCustomTemplates();
+            if (!data.programs.includes(v)) {
+              data.programs.push(v);
+              saveCustomTemplates(data);
+              templateSel.appendChild(
+                el(
+                  "option",
+                  { value: `custom-prog:${v}` },
+                  `${v} (personalizado)`
+                )
+              );
+            }
+            templateSel.value = `custom-prog:${v}`;
+            name.value = v;
+            newProgramInput.value = "";
+          },
+        },
+        "Salvar programa na lista"
+      );
+
+      const newTargetInput = el("input", {
+        class: "input",
+        placeholder: "Digite um alvo para salvar na lista",
+      });
+      const saveTargetBtn = el(
+        "button",
+        {
+          class: "btn secondary mt-1",
+          onclick: async () => {
+            const v = newTargetInput.value.trim();
+            if (!v) return toast("Informe um alvo para salvar");
+            try {
+              const headers = getAuthHeaders();
+              const res = await fetch(`${API_BASE}/api/aba/alvos`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ label: v }),
+              });
+              if (!res.ok) {
+                console.error("Erro ao salvar alvo ABA", await res.text());
+                return toast("Erro ao salvar alvo no servidor");
+              }
+              const created = await res.json();
+              // Atualiza store local
+              Store.set((s) => ({
+                ...s,
+                targets: [
+                  ...s.targets,
+                  { id: String(created.id), label: created.label },
+                ],
+              }));
+
+              // Adiciona opção no select atual
+              targetsSel.appendChild(
+                el("option", { value: String(created.id) }, created.label)
+              );
+              targetsSel.value = String(created.id);
+              target.value = created.label;
+              newTargetInput.value = "";
+            } catch (e) {
+              console.error("ABA+: erro ao salvar alvo", e);
+              toast("Falha na comunicação com o servidor");
+            }
+          },
+        },
+        "Salvar alvo na lista"
+      );
+
       const form = el("div", {}, [
-        Field("Programa", templateSel),
-        Field("Alvos", targetsSel),
+        el("div", {}, [
+          el("label", { class: "label" }, "Programa"),
+          templateSel,
+          el("div", { class: "row mt-1" }, [newProgramInput, saveProgramBtn]),
+        ]),
+        el("div", { class: "mt-2" }, [
+          el("label", { class: "label" }, "Alvos"),
+          targetsSel,
+          el("div", { class: "row mt-1" }, [newTargetInput, saveTargetBtn]),
+        ]),
         Field("Paciente *", patientSel),
         Field("Nome do Programa *", name),
         Field("Categoria", category),

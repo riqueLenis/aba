@@ -1412,6 +1412,49 @@ app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
   }
 });
 
+// Alvos ABA (modelos reutilizáveis de comportamento-alvo)
+app.get("/api/aba/alvos", verificarToken, async (req, res) => {
+  const { id: userId } = req.terapeuta;
+
+  try {
+    const result = await pool.query(
+      `SELECT id, label
+       FROM aba_alvos
+       WHERE terapeuta_id = $1
+       ORDER BY created_at ASC`,
+      [userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar alvos ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/alvos", verificarToken, async (req, res) => {
+  const { id: userId } = req.terapeuta;
+  const { label } = req.body;
+
+  if (!label || !label.trim()) {
+    return res
+      .status(400)
+      .json({ error: "O texto do alvo é obrigatório." });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO aba_alvos (terapeuta_id, label)
+       VALUES ($1, $2)
+       RETURNING id, label;`,
+      [userId, label.trim()]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar alvo ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
 // Sessões ABA
 app.get("/api/aba/sessoes", verificarToken, async (req, res) => {
   const { id: userId, role } = req.terapeuta;
