@@ -464,11 +464,6 @@ const Views = {
               ),
               el(
                 "a",
-                { href: "#/patients", class: "btn secondary" },
-                "Gerenciar Pacientes"
-              ),
-              el(
-                "a",
                 { href: "#/programs", class: "btn secondary" },
                 "Gerenciar Programas"
               ),
