@@ -11,13 +11,20 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false,
+      },
+    })
+  : new Pool({
+      user: process.env.DB_USER,
+      host: process.env.DB_HOST,
+      database: process.env.DB_DATABASE,
+      password: process.env.DB_PASSWORD,
+      port: process.env.DB_PORT,
+    });
 
 //middleware
 const verificarToken = (req, res, next) => {
@@ -230,8 +237,16 @@ app.post("/api/auth/registrar-paciente", async (req, res) => {
       .json({ error: "Nome, email e senha são obrigatórios." });
   }
 
-  // Usamos um "client" para poder fazer a transação
-  const client = await pool.connect();
+  let client;
+  try {
+    // Obtém conexão do pool (pode falhar, por isso fica dentro do try)
+    client = await pool.connect();
+  } catch (error) {
+    console.error("Erro ao conectar ao banco para registrar paciente:", error);
+    return res
+      .status(500)
+      .json({ error: "Erro de conexão com o banco de dados." });
+  }
 
   try {
     // Inicia a transação
@@ -259,7 +274,11 @@ app.post("/api/auth/registrar-paciente", async (req, res) => {
       message: "Paciente registrado com sucesso!",
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackErr) {
+      console.error("Erro ao executar ROLLBACK:", rollbackErr);
+    }
 
     console.error("Erro ao registrar paciente:", error);
     if (error.code === "23505") {
@@ -267,7 +286,7 @@ app.post("/api/auth/registrar-paciente", async (req, res) => {
     }
     res.status(500).json({ error: "Erro interno do servidor." });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
