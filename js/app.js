@@ -1386,7 +1386,10 @@ const Views = {
 
   Evolution() {
     const wrap = el("div");
-    const { patients, programs, criteriaEvolutions } = Store.get();
+    const { patients, programs, criteriaEvolutions, sessions } = Store.get();
+
+    let charts = [];
+
     const patientSel = Select(
       patients.map((p) => [p.id, p.name]),
       "",
@@ -1406,6 +1409,10 @@ const Views = {
     wrap.appendChild(listWrap);
 
     const render = (patientId) => {
+      // Limpa gráficos antigos
+      charts.forEach((c) => c && typeof c.destroy === "function" && c.destroy());
+      charts = [];
+
       listWrap.innerHTML = "";
       if (!patientId) {
         listWrap.appendChild(
@@ -1421,6 +1428,7 @@ const Views = {
         );
         return;
       }
+
       const pPrograms = programs.filter((p) => p.patientId === patientId);
       if (!pPrograms.length) {
         listWrap.appendChild(
@@ -1441,11 +1449,36 @@ const Views = {
         const evols = criteriaEvolutions
           .filter((e) => e.programId === program.id)
           .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
+
+        // Construímos série temporal de desempenho a partir das sessões ABA
+        const progSessions = sessions
+          .filter(
+            (s) => s.programId === program.id && s.patientId === patientId
+          )
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+
         const btn = el(
           "button",
           { class: "btn", onclick: () => openForm(program) },
           "+ Evoluir Critério"
         );
+
+        const chartContainer = el("div", { class: "mt-3" });
+        let chartCanvas = null;
+
+        if (progSessions.length) {
+          chartCanvas = el("canvas");
+          chartContainer.appendChild(chartCanvas);
+        } else {
+          chartContainer.appendChild(
+            el(
+              "div",
+              { class: "small" },
+              "Ainda não há sessões registradas para este programa."
+            )
+          );
+        }
+
         const body = el("div", {}, [
           el("div", { class: "row space-between" }, [
             el("div", { class: "title" }, program.name),
@@ -1456,6 +1489,7 @@ const Views = {
             { class: "small mt-2" },
             `Critério atual: ${program.currentCriteria}`
           ),
+          chartContainer,
           evols.length
             ? el(
                 "div",
@@ -1489,13 +1523,66 @@ const Views = {
               )
             : el("div", { class: "small mt-3" }, "Nenhuma evolução registrada"),
         ]);
-        listWrap.appendChild(
-          el(
-            "div",
-            { class: "card mt-3" },
-            el("div", { class: "card-body" }, body)
-          )
+
+        const card = el(
+          "div",
+          { class: "card mt-3" },
+          el("div", { class: "card-body" }, body)
         );
+        listWrap.appendChild(card);
+
+        // Cria o gráfico após o card estar no DOM
+        if (chartCanvas && typeof Chart !== "undefined") {
+          const labels = progSessions.map((s) =>
+            new Date(s.date).toLocaleDateString("pt-BR")
+          );
+          const data = progSessions.map((s) => {
+            const t = Number(s.trials) || 0;
+            const ok = Number(s.successes) || 0;
+            return t > 0 ? Math.round((ok / t) * 100) : 0;
+          });
+
+          const ctx = chartCanvas.getContext("2d");
+          const chart = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: "Taxa de acerto (%)",
+                  data,
+                  borderColor: "#2563eb",
+                  backgroundColor: "rgba(37, 99, 235, 0.15)",
+                  tension: 0.25,
+                  fill: true,
+                  pointRadius: 3,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  max: 100,
+                  ticks: {
+                    callback: (v) => `${v}%`,
+                  },
+                },
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.parsed.y}% de acertos`,
+                  },
+                },
+              },
+            },
+          });
+          charts.push(chart);
+        }
       });
     };
 
