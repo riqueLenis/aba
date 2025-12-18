@@ -116,7 +116,10 @@ const Modal = (() => {
 })();
 
 // Integração com backend PsyHead
-const API_BASE = "http://localhost:3000";
+// Em desenvolvimento usamos localhost; em produção usamos a URL do backend no Render
+const API_BASE = window.location.hostname.includes("localhost")
+  ? "http://localhost:3000"
+  : "https://SEU-SERVICO.onrender.com";
 const getAuthHeaders = () => {
   const token = localStorage.getItem("psyhead-token");
   return token
