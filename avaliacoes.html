@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PsyHead - ABA+ Avaliações</title>
+    <link rel="icon" href="assets/logo.png" type="image/x-icon" />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/aba.css" />
+    <link rel="stylesheet" href="css/avaliacoes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="brand">ABA+</div>
+        <nav class="nav">
+          <a href="aba.html#/" data-route>Dashboard</a>
+          <a href="aba.html#/programs" data-route>Programas</a>
+          <a href="aba.html#/performance" data-route>Desempenho</a>
+          <a href="aba.html#/evolution" data-route>Evolução</a>
+          <a href="avaliacoes.html" class="active">Avaliações</a>
+          <a href="index.html">Voltar ao PsyHead</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <header class="page-header">
+          <h1 id="page-title">Avaliações ABA+</h1>
+        </header>
+
+        <section class="view">
+          <div class="container">
+            <div class="actions-panel">
+              <div class="actions-header">
+                <h2 class="actions-title">Ações por Paciente</h2>
+                <p class="actions-subtitle">
+                  Registre ações específicas e vincule-as a um paciente para acompanhar intervenções e combinações.
+                </p>
+              </div>
+              <div class="actions-form">
+                <div class="actions-form-row">
+                  <div class="actions-field">
+                    <label for="actionPatientSelect">Paciente</label>
+                    <select id="actionPatientSelect" onchange="onChangeActionPatient()"></select>
+                  </div>
+                  <div class="actions-field flex-grow">
+                    <label for="actionTextInput">Nova ação</label>
+                    <input
+                      id="actionTextInput"
+                      type="text"
+                      placeholder="Ex.: Reforçar contato visual em situações de grupo"
+                    />
+                  </div>
+                  <button type="button" class="btn-add-action" onclick="addActionForCurrentPatient()">
+                    <i class="fas fa-plus"></i>
+                    Adicionar
+                  </button>
+                </div>
+                <ul id="actionsList" class="actions-list"></ul>
+              </div>
+            </div>
+
+            <!-- TELA 1: LISTA DE PACIENTES -->
+            <div id="patientList" class="patient-grid">
+              <!-- Gerado via JS -->
+            </div>
+
+            <!-- TELA 2: DETALHES DA AVALIAÇÃO -->
+            <div id="evaluationView" class="evaluation-view">
+              <div class="header-nav">
+                <button class="btn-back" onclick="showPatientList()">
+                  <i class="fas fa-arrow-left"></i> Voltar para Pacientes
+                </button>
+                <h2 id="patientNameTitle" class="page-subtitle">Avaliações</h2>
+              </div>
+              <div class="evaluation-tabs">
+                <button
+                  type="button"
+                  class="tab-btn active"
+                  onclick="switchEvaluationTab('questions')"
+                >
+                  Avaliações
+                </button>
+                <button
+                  type="button"
+                  class="tab-btn"
+                  onclick="switchEvaluationTab('charts')"
+                >
+                  Gráficos
+                </button>
+              </div>
+
+              <div id="evaluationQuestions" class="tab-pane active">
+                <div id="modulesContainer">
+                  <!-- Módulos serão inseridos aqui via JS -->
+                </div>
+              </div>
+
+              <div id="evaluationCharts" class="tab-pane">
+                <div class="chart-panel">
+                  <h3 class="chart-title">Resumo por Módulo</h3>
+                  <p class="chart-subtitle">
+                    Cada barra representa a porcentagem de itens marcados como "SIM" em cada módulo para o paciente selecionado.
+                  </p>
+                  <canvas id="evaluationChart" height="180"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:3000";
+      const token = localStorage.getItem("psyhead-token");
+      const ACTIONS_STORAGE_KEY = "aba-avaliacoes-patient-actions-v1";
+
+      const modulesData = [
+        {
+          id: 1,
+          title: "Módulo 1: Atenção/Atender chamados",
+          items: [
+            "Olha quando chamado/vem quando chamado",
+            "Orienta-se em direção a pessoa que o chamou?",
+            "Segue olhar, apontamentos ou gestos de outros?",
+            "Olha/se orienta/responde a objetos apresentados",
+            "Olha/ se orienta em direção à fala de alguém? (Movimenta o corpo, olha a cada poucos segundos)",
+            "Imita 1 a 2 movimentos motores? (Ex: Imita bater palma e levantar braço)",
+            "Olha com expectativa algo que irá acontecer?",
+            "Senta e segue pequenas instruções, durante 10 minutos?",
+            "Senta calmamente em círculo?",
+            "Imita movimentos de mão em círculo?",
+            "Chama pessoas com um som apenas? (Ex: Ma!, Pa! Dá...)?:",
+            "Segue instruções verbais básicas de 1 ou 2 dicas? (direcionada ao grupo)",
+            "Senta ao lado de pares?",
+            "Entrega itens para pares?",
+            "Ganha atenção apropriada de outras pessoas?",
+          ],
+        },
+        {
+          id: 2,
+          title: "Módulo 2: Saudações",
+          items: [
+            "Faz tchau com a mão?",
+            "Diz “Oi” em resposta a cumprimento de outros?",
+            "Vai em direção a outros para cumprimentar?",
+            "Diz “Tchau”?",
+            "É cortês? Diz “Por favor”",
+            "Retribui afeição?",
+          ],
+        },
+        {
+          id: 3,
+          title: "Módulo 3: Jogo Social",
+          items: [
+            "Permanece por 15 minutos brincando sozinho de jogos estruturados (Ex: quebra cabeças)",
+            "Permanece por mais de 15 minutos brincando ao lado de pares, com jogos estruturados?",
+            "Brinca com jogos desestruturados? (Ex: Lego, blocos)",
+            "Imita movimento com objetos?",
+            "Imita pares (com um líder) em músicas, ou em movimentos?",
+            "Imita de 4 à 6 ações em rotinas de brincar?",
+            "Alterna a vez por 5 vezes com brinquedos concretos? (Ex: blocos, cabeça de batata, balanço)",
+            "Permanece em jogo simbólico (fantasia) por 15 minutos? (Ex: médico, corrida de carro, comidinha)",
+            "Permanece em jogo simbólico (fantasia) por 15 minutos com adulto?",
+            "Permanece em jogo simbólico (fantasia) por 15 minutos com outras crianças? Compartilha brinquedos?",
+            "Troca brinquedos?",
+            "Para quando outras crianças falam ”Para”?",
+            "Termina a brincadeira de forma adequada?",
+            "Quando termina guarda os brinquedos?",
+            "Se junta a grupos pequenos de crianças que brincam livremente?",
+            "Brinca de forma funcional com os brinquedos de parquinho, se mantém brincando com outra criança? (Ex: Gangorra)",
+            "Consegue sentar e brincar de coisas simples com adultos no comando?",
+          ],
+        },
+        {
+          id: 4,
+          title: "Módulo 4: Autoconsciência",
+          items: [
+            "Aceita novas demandas/tarefas com ajuda?",
+            "Aceita um atraso na recompensa de uma ou duas horas?",
+            "Aceita interrupções durante atividades de preferência?",
+            "Pede por ajuda ao invés de evitar tarefas?",
+            "Aceita términos /transições de atividade?",
+            "Aceita uma a duas mudanças no cronograma? (Flexibilidade)",
+            "Aceita mudanças na brincadeira (flexibilidade com o jogo/brincadeira)",
+          ],
+        },
+        {
+          id: 5,
+          title: "Módulo 5: Conversação",
+          items: [
+            "Fala o que quer/precisa mais de 30 vezes por dia?",
+            "Nomeia (tato) pelo menos 100 objetos, ações, pessoas, adjetivos, advérbios?",
+            "Identifica outros pelo nome?",
+            "Pode responder 1-3 questões sociais? (Ex: Nome, idade, nomes da familiares, nome de animais de estimação)",
+            "Responde para outros de forma adequada? Sem ecolalia",
+            "Chama pessoas?",
+            "Responde a questões de sim/não adequadamente? (Ex: Você tem irmãos?)",
+            "Pede por informação? (Ex: O que é isso? onde é isso?)",
+            "Completa frases de atributos? (Ex: O que tem....)",
+            "Completa frases de categorias? (Ex: Nomeie os ......)",
+            "Responde questões com “quem”? (Ex: Quem brinca agora ...)",
+            "Responde questões com “ que”?",
+            "Descreve/ comenta suas próprias ações? (Ex: estou nadando)",
+            "Pede por atenção? (Ex: Olha para mim!)",
+            "Espera para ser chamado em grupo?",
+            "Se voluntaria para dar informação em um tópico?",
+            "Fornece informação sobre um dia na escola?",
+          ],
+        },
+        {
+          id: 6,
+          title: "Módulo 6: Tomada de Perspectativa",
+          items: [
+            "Descreve e imita emoções em figuras?",
+            "Descreve emoções em pessoas e em desenhos?",
+            "Descreve o que deixa uma criança: feliz, triste, etc?",
+            "Descreve emoções em si mesmo?",
+            "Descreve partes do corpo de uma pessoa, incluindo cor do cabelo, cor dos olhos, óculos, etc?",
+            "Adivinha a imitação de emoções feita por outros?",
+            "Procura por objetos escondidos e esconde eles?",
+            "Imita personagens?",
+            "Percebe e tenta confortar outros?",
+          ],
+        },
+        {
+          id: 7,
+          title: "Módulo 7: Solução de Problema",
+          items: [
+            "Segue regras e rotina determinada?",
+            "Faz escolhas quando apresentadas três opções?",
+            "Entende o conceito de primeiro isso depois aquilo?",
+            "Consegue sequenciar histórias com 4 passos?",
+            "Consegue recontar a história de 4 passos em sequência?",
+            "Consegue categorizar itens e temas?",
+            "Faz inferências básicas? (Ex: O que você precisa para terminar/fazer algo)",
+            "Reconta eventos da vida com ajuda de apoio visual? (Ex: o que fez no dia? Fotos da escola, banho...)",
+            "Consegue achar objetos que não estão presentes? (Peça de quebra cabeça)",
+            "Consegue determinar o que está errado em figuras?",
+            "Consegue determinar o que igual e o que é diferente em figuras?",
+            "Consegue nomear opostos?",
+          ],
+        },
+        {
+          id: 8,
+          title: "Módulo 8: Linguagem Avançada",
+          items: [
+            "Consegue compreender metáforas? (Ex: Ela é linda como uma flor)",
+            "Consegue compreender expressões como: Nem que a vaca tussa, está chovendo canivete?",
+          ],
+        },
+        {
+          id: 9,
+          title: "Módulo 9: Desenvolvimento de Amizades",
+          items: [
+            "Senta próximo da mesma criança consistentemente?",
+            "Brinca com as mesmas crianças através de diferentes dias e diferentes atividades?",
+            "Compartilha brinquedos e lanche com outras crianças?",
+            "Vai a festa de aniversário com pares?",
+          ],
+        },
+        {
+          id: 10,
+          title: "Módulo 10: Comunidade/Vida Doméstica",
+          items: [
+            "Casa: Usa o vaso sanitário adequadamente?",
+            "Casa: Retira sua roupa quando apropriado?",
+            "Casa: Tenta colocar a roupa sozinho?",
+            "Casa: Tolera o escovar os dentes?",
+            "Casa: Dorme na própria cama?",
+            "Casa: Senta para comer?",
+            "Casa: Permanece em casa seguramente?",
+            "Casa: Evita situações perigosas?",
+            "Comunidade: Fica com os pais (na comunidade)? (mais de 20 minutos)",
+            "Comunidade: Vai a consultas médicas?",
+            "Comunidade: Fica com a família em shoppings e lojas?",
+            "Comunidade: Brinca próximo/com pares na comunidade (andar de bicicleta, bola, carrinho...)",
+            "Feriados/comemorações: Aniversários, compreende calendário?",
+            "Feriados/comemorações: Espera outros abrirem o presente?",
+            "Feriados/comemorações: No dia das bruxas tolera fantasias?",
+            "Feriados/comemorações: Em outros feriados e datas festivas senta com a família durante as refeições?",
+          ],
+        },
+      ];
+
+      let patients = [];
+      let patientActions = {};
+      let evaluationChart = null;
+
+      function loadStoredActions() {
+        try {
+          const raw = localStorage.getItem(ACTIONS_STORAGE_KEY);
+          patientActions = raw ? JSON.parse(raw) : {};
+          if (typeof patientActions !== "object" || !patientActions) {
+            patientActions = {};
+          }
+        } catch (e) {
+          console.warn("Não foi possível carregar ações salvas", e);
+          patientActions = {};
+        }
+      }
+
+      function saveStoredActions() {
+        try {
+          localStorage.setItem(
+            ACTIONS_STORAGE_KEY,
+            JSON.stringify(patientActions || {})
+          );
+        } catch (e) {
+          console.warn("Não foi possível salvar ações", e);
+        }
+      }
+
+      function generateActionId() {
+        return (
+          Date.now().toString(36) + Math.random().toString(36).slice(2)
+        );
+      }
+
+      async function loadPatients() {
+        if (!token) {
+          alert("Sessão expirada. Faça login novamente para acessar as avaliações.");
+          window.location.href = "login.html";
+          return;
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/api/pacientes`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          if (response.status === 401 || response.status === 403) {
+            alert(
+              "Sua sessão expirou ou você não tem permissão para ver os pacientes. Faça login novamente."
+            );
+            localStorage.removeItem("psyhead-token");
+            localStorage.removeItem("terapeuta-nome");
+            localStorage.removeItem("user-role");
+            window.location.href = "login.html";
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error("Não foi possível carregar os pacientes.");
+          }
+
+          const data = await response.json();
+          patients = data.map((p) => ({
+            id: p.id,
+            name: p.nome_completo || p.nome || p.email,
+          }));
+
+          renderPatients();
+          populateActionPatientSelect();
+        } catch (error) {
+          console.error(error);
+          alert("Erro ao carregar pacientes. Tente novamente mais tarde.");
+        }
+      }
+
+      function renderPatients() {
+        const grid = document.getElementById("patientList");
+        grid.innerHTML = "";
+        patients.forEach((patient) => {
+          const div = document.createElement("div");
+          div.className = "patient-folder";
+          div.innerHTML = `<i class="fas fa-folder"></i><h3>${patient.name}</h3>`;
+          div.onclick = () => openEvaluation(patient);
+          grid.appendChild(div);
+        });
+      }
+
+      function populateActionPatientSelect() {
+        const select = document.getElementById("actionPatientSelect");
+        const list = document.getElementById("actionsList");
+        if (!select || !list) return;
+
+        const current = select.value;
+        select.innerHTML = "";
+
+        patients.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          select.appendChild(opt);
+        });
+
+        if (current && patients.some((p) => String(p.id) === String(current))) {
+          select.value = current;
+        }
+
+        const selectedId = select.value || (patients[0] && patients[0].id);
+        if (selectedId) {
+          renderActionsList(selectedId);
+        } else {
+          list.innerHTML =
+            '<li class="actions-empty">Nenhum paciente cadastrado ainda.</li>';
+        }
+      }
+
+      function onChangeActionPatient() {
+        const select = document.getElementById("actionPatientSelect");
+        if (!select || !select.value) return;
+        renderActionsList(select.value);
+      }
+
+      function renderActionsList(patientId) {
+        const list = document.getElementById("actionsList");
+        if (!list) return;
+        const actions = patientActions[patientId] || [];
+
+        list.innerHTML = "";
+        if (!actions.length) {
+          list.innerHTML =
+            '<li class="actions-empty">Nenhuma ação cadastrada para este paciente.</li>';
+          return;
+        }
+
+        actions.forEach((action) => {
+          const li = document.createElement("li");
+          li.className = "action-item";
+          li.innerHTML = `
+            <span class="action-text">${action.text}</span>
+            <button type="button" class="action-remove" onclick="removeActionForPatient('${patientId}','${action.id}')">
+              <i class="fas fa-trash"></i>
+            </button>
+          `;
+          list.appendChild(li);
+        });
+      }
+
+      function addActionForCurrentPatient() {
+        const select = document.getElementById("actionPatientSelect");
+        const input = document.getElementById("actionTextInput");
+        if (!select || !input || !select.value) return;
+
+        const text = input.value.trim();
+        const patientId = select.value;
+        if (!text) {
+          alert("Digite a descrição da ação antes de adicionar.");
+          return;
+        }
+
+        if (!patientActions[patientId]) patientActions[patientId] = [];
+        patientActions[patientId].push({
+          id: generateActionId(),
+          text,
+          createdAt: new Date().toISOString(),
+        });
+
+        saveStoredActions();
+        input.value = "";
+        renderActionsList(patientId);
+      }
+
+      function removeActionForPatient(patientId, actionId) {
+        const list = patientActions[patientId] || [];
+        patientActions[patientId] = list.filter((a) => a.id !== actionId);
+        saveStoredActions();
+        renderActionsList(patientId);
+      }
+
+      // 2. Renderizar Módulos e Perguntas
+      function renderModules() {
+        const container = document.getElementById("modulesContainer");
+        container.innerHTML = "";
+
+        modulesData.forEach((mod) => {
+          let percent = 0;
+          const modDiv = document.createElement("div");
+          modDiv.className = "module-card";
+          modDiv.id = `module-${mod.id}`;
+          modDiv.innerHTML = `
+                <div class="module-header" onclick="toggleModule(${mod.id})">
+                    <div class="module-info">
+                        <h3>${mod.title}</h3>
+                        <span>${mod.items.length} itens do nível 1.</span>
+                    </div>
+                    <div class="module-status">
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: ${percent}%">${percent}%</div>
+                        </div>
+                        <i class="fas fa-chevron-down toggle-icon"></i>
+                    </div>
+                </div>
+                <div class="module-content">
+                    <!-- Perguntas entram aqui -->
+                </div>
+            `;
+
+          const contentDiv = modDiv.querySelector(".module-content");
+
+          mod.items.forEach((itemText, index) => {
+            const dotColor = index % 3 === 0 ? "orange" : "green";
+
+            const qDiv = document.createElement("div");
+            qDiv.className = "question-card";
+            qDiv.innerHTML = `
+                    <div class="q-left">
+                        <div class="q-header">
+                            <div class="dot ${dotColor}"></div>
+                            <h4 class="q-title">${itemText}</h4>
+                        </div>
+                        <div class="q-meta">
+                            <div><i class="fas fa-layer-group"></i> Categoria : ${itemText}</div>
+                            <div><i class="fas fa-flag"></i> Marco : Item ${
+                              index + 1
+                            }</div>
+                            <div><i class="fas fa-ruler-horizontal"></i> Critério : </div>
+                        </div>
+                    </div>
+                    <div class="q-right">
+                        <div class="btn-group">
+                            <button class="btn-option no selected" onclick="selectOption(this, 'no', ${
+                              mod.id
+                            })">NÃO</button>
+                            <button class="btn-option yes" onclick="selectOption(this, 'yes', ${
+                              mod.id
+                            })">SIM</button>
+                        </div>
+                        <textarea class="obs-area" placeholder="Insira aqui as informações adicionais." oninput="updateCharCount(this)"></textarea>
+                        <div class="char-count">255/255 caracteres restantes</div>
+                    </div>
+                `;
+            contentDiv.appendChild(qDiv);
+          });
+
+          container.appendChild(modDiv);
+
+          updateProgress(mod.id);
+        });
+      }
+      function openEvaluation(patient) {
+        document.getElementById("patientList").style.display = "none";
+        document.getElementById("evaluationView").style.display = "block";
+        document.getElementById(
+          "patientNameTitle"
+        ).innerText = `Avaliações: ${patient.name}`;
+        const select = document.getElementById("actionPatientSelect");
+        if (select) {
+          select.value = String(patient.id);
+          renderActionsList(String(patient.id));
+        }
+        renderModules();
+      }
+
+      function showPatientList() {
+        document.getElementById("evaluationView").style.display = "none";
+        document.getElementById("patientList").style.display = "grid";
+      }
+
+      function toggleModule(id) {
+        const modCard = document.getElementById(`module-${id}`);
+        modCard.classList.toggle("active");
+      }
+
+      function selectOption(btn, type, modId) {
+        const group = btn.parentElement;
+        group
+          .querySelectorAll(".btn-option")
+          .forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        updateProgress(modId);
+      }
+
+      function updateCharCount(textarea) {
+        const maxLength = 255;
+        const current = textarea.value.length;
+        const remaining = maxLength - current;
+        textarea.nextElementSibling.innerText = `${remaining}/${maxLength} caracteres restantes`;
+      }
+
+      // Calcula a porcentagem baseada em quantos "SIM" estão selecionados
+      function updateProgress(modId) {
+        const modCard = document.getElementById(`module-${modId}`);
+        const total = modCard.querySelectorAll(".question-card").length;
+        const yesSelected = modCard.querySelectorAll(
+          ".btn-option.yes.selected"
+        ).length;
+
+        let percent = 0;
+        if (total > 0) {
+          percent = Math.round((yesSelected / total) * 100);
+        }
+
+        const bar = modCard.querySelector(".progress-bar");
+        bar.style.width = `${percent}%`;
+        bar.innerText = `${percent}%`;
+      }
+
+      function computeModuleStats() {
+        const labels = [];
+        const percents = [];
+
+        modulesData.forEach((mod) => {
+          const modCard = document.getElementById(`module-${mod.id}`);
+          if (!modCard) return;
+          const total = modCard.querySelectorAll(".question-card").length;
+          const yesSelected = modCard.querySelectorAll(
+            ".btn-option.yes.selected"
+          ).length;
+
+          let percent = 0;
+          if (total > 0) {
+            percent = Math.round((yesSelected / total) * 100);
+          }
+
+          labels.push(mod.title.replace("Módulo ", "M"));
+          percents.push(percent);
+        });
+
+        return { labels, percents };
+      }
+
+      function renderEvaluationChart() {
+        const canvas = document.getElementById("evaluationChart");
+        if (!canvas || typeof Chart === "undefined") return;
+
+        const { labels, percents } = computeModuleStats();
+        if (!labels.length) return;
+
+        const ctx = canvas.getContext("2d");
+        if (evaluationChart) {
+          evaluationChart.destroy();
+        }
+
+        evaluationChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "% de itens SIM",
+                data: percents,
+                backgroundColor: "rgba(16, 185, 129, 0.7)",
+                borderColor: "rgba(5, 150, 105, 1)",
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                display: true,
+              },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `${ctx.parsed.y || 0}%` ,
+                },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 100,
+                ticks: {
+                  callback: (value) => `${value}%`,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function switchEvaluationTab(tab) {
+        const questionsPane = document.getElementById("evaluationQuestions");
+        const chartsPane = document.getElementById("evaluationCharts");
+        const buttons = document.querySelectorAll(".evaluation-tabs .tab-btn");
+
+        if (!questionsPane || !chartsPane) return;
+
+        if (tab === "charts") {
+          questionsPane.classList.remove("active");
+          chartsPane.classList.add("active");
+          buttons.forEach((btn) => btn.classList.remove("active"));
+          buttons.forEach((btn) => {
+            if (btn.textContent.trim() === "Gráficos") btn.classList.add("active");
+          });
+          renderEvaluationChart();
+        } else {
+          chartsPane.classList.remove("active");
+          questionsPane.classList.add("active");
+          buttons.forEach((btn) => btn.classList.remove("active"));
+          buttons.forEach((btn) => {
+            if (btn.textContent.trim() === "Avaliações") btn.classList.add("active");
+          });
+        }
+      }
+      loadStoredActions();
+      loadPatients();
+    </script>
+  </body>
+</html>
