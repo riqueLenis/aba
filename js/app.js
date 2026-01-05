@@ -1002,14 +1002,49 @@ const Views = {
       const targetsSel = Select(
         targets.map((t) => [t.id, t.label]),
         "",
-        (v) => {
-          const found = targets.find((t) => t.id === v);
-          if (found) {
-            target.value = found.label;
-          }
-        },
+        () => {},
         "Selecione um alvo..."
       );
+
+      // Ajuste: permitir selecionar vários alvos no mesmo programa (sem sobrecarregar o formulário)
+      // O campo "Comportamento Alvo" passa a representar a lista de alvos selecionados (um por linha).
+      const targetsMultiSel = (() => {
+        const size = Math.min(8, Math.max(4, targets.length));
+        const s = el(
+          "select",
+          { class: "select", multiple: "multiple", size: String(size) },
+          targets.map((t) => el("option", { value: String(t.id) }, t.label))
+        );
+        const onChange = () => {
+          const selectedLabels = Array.from(s.selectedOptions).map(
+            (opt) => opt.textContent
+          );
+          target.value = selectedLabels.join("\n");
+        };
+        s.addEventListener("change", onChange);
+        s.__syncTargetsText = onChange;
+        return s;
+      })();
+
+      // Se estiver editando, tenta pré-selecionar alvos com base no texto salvo.
+      if (program?.targetBehavior) {
+        const tokens = String(program.targetBehavior)
+          .split(/\n|,|;|\r/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+
+        if (tokens.length) {
+          const byLabel = new Map(targets.map((t) => [String(t.label), String(t.id)]));
+          const selectedIds = new Set(
+            tokens
+              .map((t) => byLabel.get(t))
+              .filter((id) => id !== undefined && id !== null)
+          );
+          Array.from(targetsMultiSel.options).forEach((opt) => {
+            opt.selected = selectedIds.has(String(opt.value));
+          });
+        }
+      }
       const patientSel = Select(
         patients.map((p) => [p.id, p.name]),
         program?.patientId || "",
@@ -1117,11 +1152,15 @@ const Views = {
               }));
 
               // Adiciona opção no select atual
-              targetsSel.appendChild(
+              targetsMultiSel.appendChild(
                 el("option", { value: String(created.id) }, created.label)
               );
-              targetsSel.value = String(created.id);
-              target.value = created.label;
+              Array.from(targetsMultiSel.options).forEach((opt) => {
+                if (String(opt.value) === String(created.id)) opt.selected = true;
+              });
+              if (typeof targetsMultiSel.__syncTargetsText === "function") {
+                targetsMultiSel.__syncTargetsText();
+              }
               newTargetInput.value = "";
             } catch (e) {
               console.error("ABA+: erro ao salvar alvo", e);
@@ -1140,7 +1179,12 @@ const Views = {
         ]),
         el("div", { class: "mt-2" }, [
           el("label", { class: "label" }, "Alvos"),
-          targetsSel,
+          targetsMultiSel,
+          el(
+            "div",
+            { class: "small mt-1" },
+            "Selecione um ou mais alvos (Ctrl/Shift no Windows)."
+          ),
           el("div", { class: "row mt-1" }, [newTargetInput, saveTargetBtn]),
         ]),
         Field("Paciente *", patientSel),
