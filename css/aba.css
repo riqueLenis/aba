@@ -95,6 +95,11 @@ body {
   padding: 24px;
 }
 
+.card .card-body,
+.modal .panel .panel-body {
+  padding: 24px;
+}
+
 .grid {
   display: grid;
   gap: 16px;
@@ -145,16 +150,16 @@ body {
   cursor: not-allowed;
 }
 
-.input,
-.select,
 .textarea {
   width: 100%;
   background: #ffffff;
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
 }
+
 .textarea {
   min-height: 100px;
   resize: vertical;
@@ -225,16 +230,24 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  max-width: 640px;
+  max-width: 900px;
   width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
 .modal .panel .panel-header {
-  padding: 14px 16px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
+  flex-shrink: 0;
 }
 .modal .panel .panel-body {
-  padding: 16px;
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
 }
 .hidden {
   display: none;
@@ -255,8 +268,10 @@ body {
 .row {
   display: flex;
   gap: 16px;
-  align-items: flex-end;
+  align-items: end;
+  margin-top: 8px;
 }
+
 .row > .input,
 .row > .select,
 .row > .textarea {
@@ -269,6 +284,11 @@ body {
 }
 .row.wrap {
   flex-wrap: wrap;
+}
+
+.mt-2 > * + *,
+.mt-3 > * + * {
+  margin-top: 16px;
 }
 
 .space-between {
