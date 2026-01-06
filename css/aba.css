@@ -247,6 +247,16 @@ body {
   display: flex;
   gap: 10px;
 }
+.row > .input,
+.row > .select,
+.row > .textarea {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.row > .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .row.wrap {
   flex-wrap: wrap;
 }
