@@ -1175,7 +1175,7 @@ const Views = {
         el("div", {}, [
           el("label", { class: "label" }, "Programa"),
           templateSel,
-          el("div", { class: "row mt-1" }, [newProgramInput, saveProgramBtn]),
+          el("div", { class: "row wrap mt-1" }, [newProgramInput, saveProgramBtn]),
         ]),
         el("div", { class: "mt-2" }, [
           el("label", { class: "label" }, "Alvos"),
@@ -1185,7 +1185,7 @@ const Views = {
             { class: "small mt-1" },
             "Selecione um ou mais alvos (Ctrl/Shift no Windows)."
           ),
-          el("div", { class: "row mt-1" }, [newTargetInput, saveTargetBtn]),
+          el("div", { class: "row wrap mt-1" }, [newTargetInput, saveTargetBtn]),
         ]),
         Field("Paciente *", patientSel),
         Field("Nome do Programa *", name),
