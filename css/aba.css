@@ -19,9 +19,9 @@ html,
 body,
 #app {
   height: 100%;
+  margin: 0;
 }
 body {
-  margin: 0;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial,
     sans-serif;
   background: var(--bg);
@@ -30,17 +30,17 @@ body {
 
 #app {
   display: flex;
-  min-height: 100%;
+  height: 100vh;
 }
+
 .sidebar {
   width: 240px;
   background: #1e293b;
   border-right: 1px solid rgba(15, 23, 42, 0.2);
   padding: 20px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  overflow-y: auto;
 }
+
 .brand {
   font-weight: 700;
   font-size: 20px;
@@ -69,7 +69,9 @@ body {
   flex: 1;
   min-width: 0;
   padding: 24px;
+  overflow-y: auto;
 }
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -85,13 +87,17 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
 }
 .card .card-body {
-  padding: 16px;
+  padding: 24px;
 }
+
 .grid {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 .grid.cols-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -118,7 +124,7 @@ body {
 .btn.secondary {
   background: #1e293b;
   color: #ffffff;
-  border-color: var(--border); 
+  border-color: var(--border);
 }
 .btn.ghost {
   background: transparent;
@@ -150,14 +156,17 @@ body {
   padding: 10px;
 }
 .textarea {
-  min-height: 72px;
+  min-height: 100px;
+  resize: vertical;
 }
+
 .label {
   display: block;
   color: var(--fg-muted);
   font-size: 12px;
   margin: 8px 0 6px;
 }
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -245,7 +254,8 @@ body {
 
 .row {
   display: flex;
-  gap: 10px;
+  gap: 16px;
+  align-items: end;
 }
 .row > .input,
 .row > .select,
@@ -260,6 +270,7 @@ body {
 .row.wrap {
   flex-wrap: wrap;
 }
+
 .space-between {
   justify-content: space-between;
 }
@@ -306,5 +317,14 @@ body {
   }
   .grid.cols-4 {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  .row {
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    gap: 20px;
   }
 }
