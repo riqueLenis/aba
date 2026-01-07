@@ -91,7 +91,7 @@ let TALITAU_USER_ID_CACHE = null;
 const getTalitauUserId = async () => {
   if (TALITAU_USER_ID_CACHE) return TALITAU_USER_ID_CACHE;
   const result = await pool.query(
-    "SELECT id FROM terapeutas WHERE lower(email) = $1 LIMIT 1",
+    "SELECT id FROM terapeutas WHERE lower(trim(email)) = $1 LIMIT 1",
     [TALITAU_EMAIL]
   );
   TALITAU_USER_ID_CACHE = result.rows[0]?.id || null;
