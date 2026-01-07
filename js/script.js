@@ -52,6 +52,68 @@ document.addEventListener("DOMContentLoaded", () => {
   const userRole = localStorage.getItem("user-role");
   let calendar;
 
+  // Bloqueio pontual de acesso financeiro para logins específicos (admin mantém acesso total)
+  const FINANCE_BLOCKED_EMAILS = new Set([
+    "ana.suzuki07@gmail.com",
+    "taismacieldosantos@gmail.com",
+    "magroisabella13@gmail.com",
+    "nucleocomportamentall@gmail.com",
+  ]);
+
+  const parseJwtPayload = (jwt) => {
+    try {
+      const parts = String(jwt || "").split(".");
+      if (parts.length < 2) return null;
+      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = payload + "===".slice((payload.length + 3) % 4);
+      const json = decodeURIComponent(
+        atob(padded)
+          .split("")
+          .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+          .join("")
+      );
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  };
+
+  const isFinanceBlockedUser = () => {
+    if (!token) return false;
+    if (userRole === "admin") return false;
+    const payload = parseJwtPayload(token);
+    const email = String(payload?.email || "").trim().toLowerCase();
+    return email ? FINANCE_BLOCKED_EMAILS.has(email) : false;
+  };
+
+  const financeBlocked = isFinanceBlockedUser();
+
+  const hideNavItem = (linkId) => {
+    const link = document.getElementById(linkId);
+    if (link && link.parentElement) {
+      link.parentElement.classList.add("hidden");
+    }
+  };
+
+  const hideFinanceUI = () => {
+    // Sidebar
+    hideNavItem("financeiro-link");
+
+    // Dashboard card (Faturamento)
+    const faturamentoEl = document.getElementById("stat-faturamento-mes");
+    const faturamentoCard = faturamentoEl?.closest?.(".stat-card");
+    if (faturamentoCard) faturamentoCard.classList.add("hidden");
+
+    // Feature card
+    document
+      .querySelectorAll('.feature-card[data-target="financeiro-link"]')
+      .forEach((card) => card.classList.add("hidden"));
+
+    // Seção Financeiro
+    const financeiroSection = document.getElementById("financeiro-section");
+    if (financeiroSection) financeiroSection.classList.add("hidden");
+  };
+
   let allPacientes = [];
   let terapeutasDisponiveis = [];
 
@@ -99,6 +161,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (sectionId === "agenda-section") inicializarCalendario();
     if (sectionId === "financeiro-section") {
+      if (financeBlocked) return;
       carregarResumoFinanceiro();
       carregarTransacoesRecentes();
     }
@@ -1346,6 +1409,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   setupNavigationForRole(userRole);
+  if (financeBlocked) {
+    hideFinanceUI();
+  }
   if (userRole === "paciente") {
     activateSection("agenda-section", "agenda-link");
     inicializarCalendario();

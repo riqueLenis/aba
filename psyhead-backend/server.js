@@ -58,6 +58,33 @@ const verificarAdmin = (req, res, next) => {
   next();
 };
 
+// Bloqueio pontual de acesso ao módulo financeiro para logins específicos
+// - Admin mantém acesso total
+// - Usuários listados aqui não acessam: Gestão Financeira e endpoints de resumo/relatórios financeiros
+const FINANCE_BLOCKED_EMAILS = new Set(
+  (process.env.FINANCE_BLOCKED_EMAILS ||
+    "ana.suzuki07@gmail.com,taismacieldosantos@gmail.com,magroisabella13@gmail.com,nucleocomportamentall@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+const isFinanceBlockedUser = (terapeuta) => {
+  if (!terapeuta) return false;
+  if (terapeuta.role === "admin") return false;
+  const email = String(terapeuta.email || "").trim().toLowerCase();
+  return email ? FINANCE_BLOCKED_EMAILS.has(email) : false;
+};
+
+const verificarAcessoFinanceiro = (req, res, next) => {
+  if (isFinanceBlockedUser(req.terapeuta)) {
+    return res
+      .status(403)
+      .json({ error: "Acesso negado ao módulo financeiro para este usuário." });
+  }
+  next();
+};
+
 //rota pra adicionar um novo terapeuta
 app.post("/api/auth/registrar", async (req, res) => {
   const { nome, email, senha } = req.body;
@@ -391,7 +418,12 @@ app.get("/api/dashboard/stats", verificarToken, async (req, res) => {
 
   try {
     const result = await pool.query(queryText, values);
-    res.status(200).json(result.rows[0]);
+    const stats = result.rows[0] || {};
+    // Usuários bloqueados não devem ver o resumo financeiro no dashboard
+    if (isFinanceBlockedUser(req.terapeuta)) {
+      stats.faturamento_mes = 0;
+    }
+    res.status(200).json(stats);
   } catch (error) {
     console.error("Erro ao buscar estatísticas do dashboard:", error);
     res.status(500).json({ error: "Erro interno do servidor." });
@@ -1141,7 +1173,10 @@ app.delete("/api/medicacoes/:id", verificarToken, async (req, res) => {
 });
 
 //rota pro resumo financeiro do mes atual
-app.get("/api/financeiro/resumo", verificarToken, async (req, res) => {
+app.get(
+  "/api/financeiro/resumo",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
   const { id: userId } = req.terapeuta;
   console.log("Buscando resumo financeiro do mês atual");
   try {
@@ -1172,10 +1207,14 @@ app.get("/api/financeiro/resumo", verificarToken, async (req, res) => {
       error: "Erro interno do servidor.",
     });
   }
-});
+  }
+);
 
 //rota para as transacoes recentes
-app.get("/api/financeiro/transacoes", verificarToken, async (req, res) => {
+app.get(
+  "/api/financeiro/transacoes",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
   const { id: userId } = req.terapeuta;
   console.log("Buscando transações financeiras recentes");
   try {
@@ -1200,9 +1239,13 @@ app.get("/api/financeiro/transacoes", verificarToken, async (req, res) => {
       error: "Erro interno do servidor.",
     });
   }
-});
+  }
+);
 //relatorios rota geração
-app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
+app.post(
+  "/api/relatorios/financeiro",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
   const { data_inicio, data_fim } = req.body;
   const { id: userId } = req.terapeuta;
   console.log(`Gerando relatório financeiro de ${data_inicio} a ${data_fim}`);
@@ -1254,7 +1297,8 @@ app.post("/api/relatorios/financeiro", verificarToken, async (req, res) => {
       error: "Erro interno do servidor.",
     });
   }
-});
+  }
+);
 
 // ============================
 // Rotas ABA+ (Programas, Sessões, Evoluções, Planos)
