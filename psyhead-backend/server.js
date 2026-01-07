@@ -69,6 +69,159 @@ const FINANCE_BLOCKED_EMAILS = new Set(
     .filter(Boolean)
 );
 
+// Compartilhamento restrito: pacientes do admin talitauenopsi@gmail.com
+// Só podem ser acessados por: o próprio talitauenopsi + 3 emails liberados
+const TALITAU_EMAIL = String(
+  process.env.TALITAU_EMAIL || "talitauenopsi@gmail.com"
+)
+  .trim()
+  .toLowerCase();
+
+const TALITAU_SHARED_PATIENTS_ALLOWED_EMAILS = new Set(
+  (process.env.TALITAU_SHARED_PATIENTS_ALLOWED_EMAILS ||
+    "ana.suzuki07@gmail.com,magroisabella13@gmail.com,nucleocomportamentall@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
+let TALITAU_USER_ID_CACHE = null;
+const getTalitauUserId = async () => {
+  if (TALITAU_USER_ID_CACHE) return TALITAU_USER_ID_CACHE;
+  const result = await pool.query(
+    "SELECT id FROM terapeutas WHERE lower(email) = $1 LIMIT 1",
+    [TALITAU_EMAIL]
+  );
+  TALITAU_USER_ID_CACHE = result.rows[0]?.id || null;
+  return TALITAU_USER_ID_CACHE;
+};
+
+const canAccessTalitauPatients = (terapeuta) => {
+  const email = normalizeEmail(terapeuta?.email);
+  if (!email) return false;
+  if (email === TALITAU_EMAIL) return true;
+  return TALITAU_SHARED_PATIENTS_ALLOWED_EMAILS.has(email);
+};
+
+const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
+  try {
+    const pacienteId = req.params?.[paramName];
+    if (!pacienteId) {
+      return res.status(400).json({ error: "ID do paciente é obrigatório." });
+    }
+
+    const user = req.terapeuta;
+    const { id: userId, role } = user;
+
+    const result = await pool.query(
+      "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
+      [pacienteId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Paciente não encontrado." });
+    }
+
+    const paciente = result.rows[0];
+    const talitauId = await getTalitauUserId();
+
+    // Login de paciente: só acessa o próprio prontuário
+    if (role === "paciente") {
+      if (paciente.usuario_id === userId) {
+        req.pacienteAcesso = paciente;
+        return next();
+      }
+      return res.status(403).json({ error: "Acesso negado ao paciente." });
+    }
+
+    // Regra específica: pacientes do talitauenopsi só para os emails liberados
+    if (talitauId && paciente.terapeuta_id === talitauId) {
+      if (canAccessTalitauPatients(user)) {
+        req.pacienteAcesso = paciente;
+        return next();
+      }
+      return res
+        .status(403)
+        .json({ error: "Acesso negado aos pacientes deste terapeuta." });
+    }
+
+    // Admin pode acessar demais pacientes
+    if (role === "admin") {
+      req.pacienteAcesso = paciente;
+      return next();
+    }
+
+    // Terapeuta: só acessa pacientes próprios
+    if (paciente.terapeuta_id === userId) {
+      req.pacienteAcesso = paciente;
+      return next();
+    }
+
+    return res.status(403).json({ error: "Acesso negado ao paciente." });
+  } catch (error) {
+    console.error("Erro ao verificar acesso ao paciente:", error);
+    return res.status(500).json({ error: "Erro interno do servidor." });
+  }
+};
+
+const verificarAcessoPacienteId = makeVerificarAcessoPaciente("id");
+const verificarAcessoPacienteParam = (paramName) =>
+  makeVerificarAcessoPaciente(paramName);
+
+const verificarAcessoSessao = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = req.terapeuta;
+
+    const result = await pool.query(
+      `
+        SELECT s.id AS sessao_id, p.id AS paciente_id, p.terapeuta_id, p.usuario_id
+        FROM sessoes s
+        JOIN pacientes p ON p.id = s.paciente_id
+        WHERE s.id = $1
+      `,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Sessão não encontrada." });
+    }
+
+    req.params.pacienteId = String(result.rows[0].paciente_id);
+    return verificarAcessoPacienteParam("pacienteId")(req, res, next);
+  } catch (error) {
+    console.error("Erro ao verificar acesso à sessão:", error);
+    return res.status(500).json({ error: "Erro interno do servidor." });
+  }
+};
+
+const verificarAcessoMedicacao = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `
+        SELECT m.id AS medicacao_id, p.id AS paciente_id, p.terapeuta_id, p.usuario_id
+        FROM medicacoes m
+        JOIN pacientes p ON p.id = m.paciente_id
+        WHERE m.id = $1
+      `,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Medicação não encontrada." });
+    }
+
+    req.params.pacienteId = String(result.rows[0].paciente_id);
+    return verificarAcessoPacienteParam("pacienteId")(req, res, next);
+  } catch (error) {
+    console.error("Erro ao verificar acesso à medicação:", error);
+    return res.status(500).json({ error: "Erro interno do servidor." });
+  }
+};
+
 const isFinanceBlockedUser = (terapeuta) => {
   if (!terapeuta) return false;
   if (terapeuta.role === "admin") return false;
@@ -438,9 +591,19 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    // Admin agora também filtra por terapeuta_id
-    queryText += " WHERE terapeuta_id = $1 ORDER BY nome_completo;";
-    values = [userId];
+    // Admin agora também filtra por terapeuta_id (com exceção de compartilhamento do talitau)
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (terapeuta_id = $1 OR terapeuta_id = $2) ORDER BY nome_completo;";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE terapeuta_id = $1 ORDER BY nome_completo;";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     queryText += " WHERE usuario_id = $1;";
     values = [userId];
@@ -460,30 +623,34 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
 });
 
 //buscando paciente especifico
-app.get("/api/pacientes/:id", verificarToken, async (req, res) => {
-  const { id } = req.params;
-  console.log(`recebida requisição para buscar o paciente com ID ${id}`);
+app.get(
+  "/api/pacientes/:id",
+  [verificarToken, verificarAcessoPacienteId],
+  async (req, res) => {
+    const { id } = req.params;
+    console.log(`recebida requisição para buscar o paciente com ID ${id}`);
 
-  try {
-    const queryText = "SELECT * FROM pacientes WHERE id = $1";
-    const result = await pool.query(queryText, [id]);
+    try {
+      const queryText = "SELECT * FROM pacientes WHERE id = $1";
+      const result = await pool.query(queryText, [id]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: "Paciente não encontrado ",
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          error: "Paciente não encontrado ",
+        });
+      }
+      res.status(200).json(result.rows[0]);
+    } catch (error) {
+      console.error("erro ao buscar paciente por ID", error);
+      res.status(500).json({
+        error: "erro interno do servidor, consulte o suporte",
       });
     }
-    res.status(200).json(result.rows[0]);
-  } catch (error) {
-    console.error("erro ao buscar paciente por ID", error);
-    res.status(500).json({
-      error: "erro interno do servidor, consulte o suporte",
-    });
   }
-});
+);
 
 //rota pra atualizar um paciente
-app.put("/api/pacientes/:id", verificarToken, async (req, res) => {
+app.put("/api/pacientes/:id", [verificarToken, verificarAcessoPacienteId], async (req, res) => {
   const { id } = req.params;
   console.log(`recebida requisição para atualizar o paciente com ID: {id}`);
 
@@ -794,7 +961,10 @@ app.put('/api/pacientes/:pacienteId/atribuir', [verificarToken, verificarAdmin],
 
 
 
-app.delete("/api/pacientes/:id", verificarToken, async (req, res) => {
+app.delete(
+  "/api/pacientes/:id",
+  [verificarToken, verificarAcessoPacienteId],
+  async (req, res) => {
   const { id } = req.params;
   console.log(`Recebida requisição para EXCLUIR o paciente com ID: ${id}`);
 
@@ -816,7 +986,8 @@ app.delete("/api/pacientes/:id", verificarToken, async (req, res) => {
       error: "Erro interno do servidor",
     });
   }
-});
+  }
+);
 
 //rota para marcar uma sessao
 app.post("/api/sessoes", verificarToken, async (req, res) => {
@@ -839,6 +1010,32 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
   }
 
   try {
+    // Garante que o usuário tem acesso ao paciente antes de criar a sessão
+    const pacienteRes = await pool.query(
+      "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
+      [paciente_id]
+    );
+    if (pacienteRes.rows.length === 0) {
+      return res.status(404).json({ error: "Paciente não encontrado." });
+    }
+    const paciente = pacienteRes.rows[0];
+    const { id: userId, role } = req.terapeuta;
+    const talitauId = await getTalitauUserId();
+
+    if (role === "paciente") {
+      if (paciente.usuario_id !== userId) {
+        return res.status(403).json({ error: "Acesso negado ao paciente." });
+      }
+    } else if (talitauId && paciente.terapeuta_id === talitauId) {
+      if (!canAccessTalitauPatients(req.terapeuta)) {
+        return res.status(403).json({
+          error: "Acesso negado aos pacientes deste terapeuta.",
+        });
+      }
+    } else if (role !== "admin" && paciente.terapeuta_id !== userId) {
+      return res.status(403).json({ error: "Acesso negado ao paciente." });
+    }
+
     const queryText = `
       INSERT INTO sessoes (
         paciente_id, data_sessao, duracao_minutos, tipo_sessao, 
@@ -870,7 +1067,7 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
 });
 
 //rota pra buscar os detalhes de uma unica sessao
-app.get("/api/sessoes/:id", verificarToken, async (req, res) => {
+app.get("/api/sessoes/:id", [verificarToken, verificarAcessoSessao], async (req, res) => {
   const { id } = req.params;
   console.log(`Buscando detalhes da sessão com ID: ${id}`);
 
@@ -900,7 +1097,7 @@ app.get("/api/sessoes/:id", verificarToken, async (req, res) => {
 });
 
 //rota pra atualizar uma sessão
-app.put("/api/sessoes/:id", verificarToken, async (req, res) => {
+app.put("/api/sessoes/:id", [verificarToken, verificarAcessoSessao], async (req, res) => {
   const { id } = req.params;
   const {
     data_sessao,
@@ -954,7 +1151,7 @@ app.put("/api/sessoes/:id", verificarToken, async (req, res) => {
 });
 
 //rota pra excluir uma sessão
-app.delete("/api/sessoes/:id", verificarToken, async (req, res) => {
+app.delete("/api/sessoes/:id", [verificarToken, verificarAcessoSessao], async (req, res) => {
   const { id } = req.params;
   try {
     const queryText = "DELETE FROM sessoes WHERE id = $1 RETURNING id;";
@@ -978,7 +1175,7 @@ app.delete("/api/sessoes/:id", verificarToken, async (req, res) => {
 //rota pra buscar todas as sessões de um paciente especific
 app.get(
   "/api/pacientes/:pacienteId/sessoes",
-  verificarToken,
+  [verificarToken, verificarAcessoPacienteParam("pacienteId")],
   async (req, res) => {
     const { pacienteId } = req.params;
     console.log(`Buscando todas as sessões para o paciente ID: ${pacienteId}`);
@@ -1011,8 +1208,18 @@ app.get("/api/sessoes", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    queryText += " WHERE p.terapeuta_id = $1";
-    values = [userId];
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     queryText += " WHERE p.usuario_id = $1";
     values = [userId];
@@ -1030,7 +1237,7 @@ app.get("/api/sessoes", verificarToken, async (req, res) => {
 //rota pra add uma medicação pra um paciente
 app.post(
   "/api/pacientes/:pacienteId/medicacoes",
-  verificarToken,
+  [verificarToken, verificarAcessoPacienteParam("pacienteId")],
   async (req, res) => {
     const { pacienteId } = req.params;
     const {
@@ -1085,7 +1292,7 @@ app.post(
 //rota pra listar todas as medicações de um paciente
 app.get(
   "/api/pacientes/:pacienteId/medicacoes",
-  verificarToken,
+  [verificarToken, verificarAcessoPacienteParam("pacienteId")],
   async (req, res) => {
     const { pacienteId } = req.params;
     try {
@@ -1103,7 +1310,7 @@ app.get(
 );
 
 //rota pra atualizar uma medicacao
-app.put("/api/medicacoes/:id", verificarToken, async (req, res) => {
+app.put("/api/medicacoes/:id", [verificarToken, verificarAcessoMedicacao], async (req, res) => {
   const { id } = req.params;
   const {
     nome_medicamento,
@@ -1151,7 +1358,7 @@ app.put("/api/medicacoes/:id", verificarToken, async (req, res) => {
 });
 
 //rota pra excluir uma medicacao
-app.delete("/api/medicacoes/:id", verificarToken, async (req, res) => {
+app.delete("/api/medicacoes/:id", [verificarToken, verificarAcessoMedicacao], async (req, res) => {
   const { id } = req.params;
   try {
     const queryText = "DELETE FROM medicacoes WHERE id = $1 RETURNING id;";
