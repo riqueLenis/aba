@@ -1573,6 +1573,45 @@ const Views = {
             { class: "btn secondary", onclick: () => Modal.close() },
             "Cancelar"
           ),
+          program && program.id
+            ? el(
+                "button",
+                {
+                  class: "btn danger",
+                  onclick: async () => {
+                    const ok = confirm(
+                      `Excluir este programa?\n\n${String(program.name || "").trim() || "(sem nome)"}`
+                    );
+                    if (!ok) return;
+
+                    try {
+                      const headers = getAuthHeaders();
+                      const res = await fetch(
+                        `${API_BASE}/api/aba/programas/${program.id}`,
+                        {
+                          method: "DELETE",
+                          headers,
+                        }
+                      );
+                      if (!res.ok) {
+                        console.error(
+                          "Erro ao excluir programa ABA",
+                          await res.text()
+                        );
+                        return toast("Erro ao excluir programa no servidor");
+                      }
+                      await syncFromBackend();
+                      Modal.close();
+                      toast("Programa excluído");
+                    } catch (e) {
+                      console.error("ABA+: erro ao excluir programa", e);
+                      toast("Falha na comunicação com o servidor");
+                    }
+                  },
+                },
+                "Excluir"
+              )
+            : "",
           el(
             "button",
             {

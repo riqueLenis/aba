@@ -1780,6 +1780,25 @@ app.put("/api/aba/programas/:id", verificarToken, async (req, res) => {
 app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
   const { id } = req.params;
   try {
+    // Pacientes não podem excluir programas
+    if (req.terapeuta?.role === "paciente") {
+      return res
+        .status(403)
+        .json({ error: "Pacientes não podem excluir programas." });
+    }
+
+    const programRes = await pool.query(
+      "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
+      [id]
+    );
+    if (!programRes.rows.length) {
+      return res.status(404).json({ error: "Programa ABA não encontrado." });
+    }
+
+    const pacienteId = programRes.rows[0].paciente_id;
+    const ok = await assertCanAccessPacienteId(req, res, pacienteId);
+    if (!ok) return;
+
     const result = await pool.query(
       "DELETE FROM aba_programas WHERE id = $1 RETURNING id",
       [id]
