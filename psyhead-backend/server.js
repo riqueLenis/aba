@@ -222,6 +222,81 @@ const verificarAcessoMedicacao = async (req, res, next) => {
   }
 };
 
+const getPacienteForAccess = async (pacienteId) => {
+  const result = await pool.query(
+    "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
+    [pacienteId]
+  );
+  return result.rows[0] || null;
+};
+
+const assertCanAccessPacienteId = async (req, res, pacienteId) => {
+  const paciente = await getPacienteForAccess(pacienteId);
+  if (!paciente) {
+    res.status(404).json({ error: "Paciente não encontrado." });
+    return null;
+  }
+
+  const { id: userId, role } = req.terapeuta;
+  const talitauId = await getTalitauUserId();
+
+  if (role === "paciente") {
+    if (paciente.usuario_id !== userId) {
+      res.status(403).json({ error: "Acesso negado ao paciente." });
+      return null;
+    }
+    return paciente;
+  }
+
+  if (talitauId && paciente.terapeuta_id === talitauId) {
+    if (!canAccessTalitauPatients(req.terapeuta)) {
+      res
+        .status(403)
+        .json({ error: "Acesso negado aos pacientes deste terapeuta." });
+      return null;
+    }
+    return paciente;
+  }
+
+  if (role === "admin") {
+    return paciente;
+  }
+
+  if (paciente.terapeuta_id !== userId) {
+    res.status(403).json({ error: "Acesso negado ao paciente." });
+    return null;
+  }
+
+  return paciente;
+};
+
+const verificarAcessoPastaCurricular = async (req, res, next) => {
+  try {
+    const pastaId = req.params?.id;
+    if (!pastaId) {
+      return res.status(400).json({ error: "ID da pasta é obrigatório." });
+    }
+
+    const result = await pool.query(
+      "SELECT id, paciente_id FROM aba_pastas_curriculares WHERE id = $1",
+      [pastaId]
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Pasta não encontrada." });
+    }
+
+    const pasta = result.rows[0];
+    const ok = await assertCanAccessPacienteId(req, res, pasta.paciente_id);
+    if (!ok) return;
+
+    req.pastaCurricular = pasta;
+    next();
+  } catch (error) {
+    console.error("Erro ao verificar acesso à pasta curricular:", error);
+    return res.status(500).json({ error: "Erro interno do servidor." });
+  }
+};
+
 const isFinanceBlockedUser = (terapeuta) => {
   if (!terapeuta) return false;
   if (terapeuta.role === "admin") return false;
@@ -1524,8 +1599,18 @@ app.get("/api/aba/programas", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    queryText += " WHERE p.terapeuta_id = $1";
-    values = [userId];
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     queryText += " WHERE p.usuario_id = $1";
     values = [userId];
@@ -1714,8 +1799,18 @@ app.get("/api/aba/sessoes", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    queryText += " WHERE p.terapeuta_id = $1";
-    values = [userId];
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     queryText += " WHERE p.usuario_id = $1";
     values = [userId];
@@ -1815,8 +1910,18 @@ app.get("/api/aba/evolucoes", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    queryText += " WHERE p.terapeuta_id = $1";
-    values = [userId];
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     queryText += " WHERE p.usuario_id = $1";
     values = [userId];
@@ -1884,8 +1989,18 @@ app.get("/api/aba/planos", verificarToken, async (req, res) => {
   let values = [];
 
   if (role === "terapeuta" || role === "admin") {
-    whereClause = "WHERE p.terapeuta_id = $1";
-    values = [userId];
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      whereClause = "WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      whereClause = "WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
   } else if (role === "paciente") {
     whereClause = "WHERE p.usuario_id = $1";
     values = [userId];
@@ -2053,6 +2168,192 @@ app.delete("/api/aba/planos/:id", verificarToken, async (req, res) => {
     res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
+
+// ============================
+// Pastas Curriculares (por paciente) + anexos de Programas/Alvos
+// ============================
+
+app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { pacienteId } = req.query;
+
+  let queryText = `
+    SELECT
+      f.id,
+      f.paciente_id,
+      f.nome,
+      f.criado_em,
+      f.atualizado_em,
+      COALESCE(
+        JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT('id', ap.id, 'nome', ap.nome))
+        FILTER (WHERE ap.id IS NOT NULL),
+        '[]'::jsonb
+      ) AS programas,
+      COALESCE(
+        JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT('id', a.id, 'label', a.label))
+        FILTER (WHERE a.id IS NOT NULL),
+        '[]'::jsonb
+      ) AS alvos
+    FROM aba_pastas_curriculares f
+    JOIN pacientes p ON p.id = f.paciente_id
+    LEFT JOIN aba_pasta_programas fp ON fp.pasta_id = f.id
+    LEFT JOIN aba_programas ap ON ap.id = fp.programa_id
+    LEFT JOIN aba_pasta_alvos fa ON fa.pasta_id = f.id
+    LEFT JOIN aba_alvos a ON a.id = fa.alvo_id
+  `;
+
+  let values = [];
+  if (role === "terapeuta" || role === "admin") {
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
+    }
+  } else if (role === "paciente") {
+    queryText += " WHERE p.usuario_id = $1";
+    values = [userId];
+  }
+
+  if (pacienteId) {
+    const idx = values.length + 1;
+    queryText += values.length
+      ? ` AND f.paciente_id = $${idx}`
+      : ` WHERE f.paciente_id = $${idx}`;
+    values.push(pacienteId);
+  }
+
+  queryText += " GROUP BY f.id ORDER BY f.criado_em DESC;";
+
+  try {
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar pastas curriculares:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
+  const { patientId, name } = req.body;
+  if (!patientId || !name || !String(name).trim()) {
+    return res.status(400).json({
+      error: "Paciente e nome da pasta são obrigatórios.",
+    });
+  }
+
+  const ok = await assertCanAccessPacienteId(req, res, patientId);
+  if (!ok) return;
+
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO aba_pastas_curriculares (paciente_id, nome, criado_por)
+        VALUES ($1, $2, $3)
+        RETURNING id, paciente_id, nome, criado_em, atualizado_em;
+      `,
+      [patientId, String(name).trim(), req.terapeuta.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar pasta curricular:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post(
+  "/api/aba/pastas-curriculares/:id/programas",
+  [verificarToken, verificarAcessoPastaCurricular],
+  async (req, res) => {
+    const { id } = req.params;
+    const { programId } = req.body;
+    if (!programId) {
+      return res.status(400).json({ error: "programId é obrigatório." });
+    }
+
+    try {
+      const folder = req.pastaCurricular;
+      const programRes = await pool.query(
+        "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
+        [programId]
+      );
+      if (!programRes.rows.length) {
+        return res.status(404).json({ error: "Programa não encontrado." });
+      }
+      if (Number(programRes.rows[0].paciente_id) !== Number(folder.paciente_id)) {
+        return res.status(400).json({
+          error: "O programa deve pertencer ao mesmo paciente da pasta.",
+        });
+      }
+
+      await pool.query(
+        `
+          INSERT INTO aba_pasta_programas (pasta_id, programa_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING;
+        `,
+        [id, programId]
+      );
+
+      await pool.query(
+        "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
+        [id]
+      );
+
+      res.status(200).json({ message: "Programa anexado." });
+    } catch (error) {
+      console.error("Erro ao anexar programa à pasta curricular:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  }
+);
+
+app.post(
+  "/api/aba/pastas-curriculares/:id/alvos",
+  [verificarToken, verificarAcessoPastaCurricular],
+  async (req, res) => {
+    const { id } = req.params;
+    const { alvoId } = req.body;
+    if (!alvoId) {
+      return res.status(400).json({ error: "alvoId é obrigatório." });
+    }
+
+    try {
+      const alvoRes = await pool.query(
+        "SELECT id FROM aba_alvos WHERE id = $1",
+        [alvoId]
+      );
+      if (!alvoRes.rows.length) {
+        return res.status(404).json({ error: "Alvo não encontrado." });
+      }
+
+      await pool.query(
+        `
+          INSERT INTO aba_pasta_alvos (pasta_id, alvo_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING;
+        `,
+        [id, alvoId]
+      );
+
+      await pool.query(
+        "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
+        [id]
+      );
+
+      res.status(200).json({ message: "Alvo anexado." });
+    } catch (error) {
+      console.error("Erro ao anexar alvo à pasta curricular:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  }
+);
 
 
 app.listen(PORT, () => {

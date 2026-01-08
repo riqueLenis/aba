@@ -92,7 +92,14 @@ const toast = (msg) => {
   setTimeout(() => t.classList.add("hidden"), 2200);
 };
 
-// Armazenamento local de modelos personalizados de programas e alvos
+const safeJson = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
 const CUSTOM_TEMPLATES_KEY = "aba-plus-custom-templates";
 const loadCustomTemplates = () => {
   try {
@@ -510,6 +517,300 @@ const Views = {
         ),
       ]),
     ]);
+  },
+
+  CurricularFolders() {
+    const wrap = el("div");
+    const { patients, programs, targets } = Store.get();
+
+    let selectedPatientId = patients[0]?.id || "";
+    let folders = [];
+
+    const patientSel = Select(
+      patients.map((p) => [p.id, p.name]),
+      selectedPatientId,
+      async (v) => {
+        selectedPatientId = v;
+        await loadFolders();
+      },
+      "Selecione o paciente..."
+    );
+
+    const folderName = el("input", {
+      class: "input",
+      placeholder: "Nome da pasta curricular",
+    });
+
+    const createBtn = el(
+      "button",
+      {
+        class: "btn",
+        onclick: async () => {
+          if (!selectedPatientId) return toast("Selecione o paciente");
+          if (!folderName.value.trim()) return toast("Informe o nome da pasta");
+
+          try {
+            const headers = getAuthHeaders();
+            const res = await fetch(`${API_BASE}/api/aba/pastas-curriculares`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                patientId: selectedPatientId,
+                name: folderName.value.trim(),
+              }),
+            });
+            if (!res.ok) {
+              console.error(
+                "Erro ao criar pasta curricular",
+                await res.text().catch(() => "")
+              );
+              return toast("Erro ao criar pasta no servidor");
+            }
+            folderName.value = "";
+            toast("Pasta criada");
+            await loadFolders();
+          } catch (e) {
+            console.error("ABA+: erro ao criar pasta curricular", e);
+            toast("Falha na comunicação com o servidor");
+          }
+        },
+      },
+      "Criar Pasta"
+    );
+
+    const header = el("div", { class: "card" }, [
+      el("div", { class: "card-body" }, [
+        el("div", { class: "title" }, "Pastas Curriculares"),
+        el(
+          "div",
+          { class: "small mt-1" },
+          "Crie pastas por paciente e anexe programas e alvos."
+        ),
+        el("div", { class: "row mt-3 wrap" }, [
+          Field("Paciente", patientSel),
+          Field("Nova pasta", folderName),
+          createBtn,
+        ]),
+      ]),
+    ]);
+
+    const listWrap = el("div", { class: "grid gap mt-3" });
+
+    const attachProgram = async (folderId, programId) => {
+      if (!programId) return toast("Selecione o programa");
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/aba/pastas-curriculares/${folderId}/programas`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ programId }),
+          }
+        );
+        if (!res.ok) {
+          console.error(
+            "Erro ao anexar programa",
+            await res.text().catch(() => "")
+          );
+          return toast("Erro ao anexar programa");
+        }
+        toast("Programa anexado");
+        await loadFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao anexar programa", e);
+        toast("Falha na comunicação com o servidor");
+      }
+    };
+
+    const attachTarget = async (folderId, alvoId) => {
+      if (!alvoId) return toast("Selecione o alvo");
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/aba/pastas-curriculares/${folderId}/alvos`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ alvoId }),
+          }
+        );
+        if (!res.ok) {
+          console.error(
+            "Erro ao anexar alvo",
+            await res.text().catch(() => "")
+          );
+          return toast("Erro ao anexar alvo");
+        }
+        toast("Alvo anexado");
+        await loadFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao anexar alvo", e);
+        toast("Falha na comunicação com o servidor");
+      }
+    };
+
+    const renderFolders = () => {
+      listWrap.innerHTML = "";
+
+      if (!selectedPatientId) {
+        listWrap.appendChild(
+          el(
+            "div",
+            { class: "card" },
+            el(
+              "div",
+              { class: "card-body" },
+              el(
+                "div",
+                { class: "small" },
+                "Selecione um paciente para ver as pastas."
+              )
+            )
+          )
+        );
+        return;
+      }
+
+      if (!folders.length) {
+        listWrap.appendChild(
+          el(
+            "div",
+            { class: "card" },
+            el(
+              "div",
+              { class: "card-body" },
+              el(
+                "div",
+                { class: "small" },
+                "Nenhuma pasta criada para este paciente."
+              )
+            )
+          )
+        );
+        return;
+      }
+
+      const patientPrograms = programs
+        .filter((p) => String(p.patientId) === String(selectedPatientId))
+        .map((p) => [p.id, p.name]);
+
+      const targetOptions = (targets || []).map((t) => [t.id, t.label]);
+
+      folders.forEach((f) => {
+        const programSel = Select(
+          patientPrograms,
+          "",
+          (v) => (programSel.value = v),
+          "Selecione o programa..."
+        );
+        const targetSel = Select(
+          targetOptions,
+          "",
+          (v) => (targetSel.value = v),
+          "Selecione o alvo..."
+        );
+
+        const progList = Array.isArray(f.programas) ? f.programas : [];
+        const alvoList = Array.isArray(f.alvos) ? f.alvos : [];
+
+        listWrap.appendChild(
+          el("div", { class: "card" }, [
+            el("div", { class: "card-body" }, [
+              el("div", { class: "row space-between" }, [
+                el("div", { class: "title" }, f.nome || "Pasta"),
+                el(
+                  "div",
+                  { class: "small" },
+                  f.criado_em ? new Date(f.criado_em).toLocaleDateString() : ""
+                ),
+              ]),
+
+              el("div", { class: "row mt-2 wrap" }, [
+                Field("Anexar programa", programSel),
+                el(
+                  "button",
+                  {
+                    class: "btn secondary",
+                    onclick: () => attachProgram(f.id, programSel.value),
+                  },
+                  "Anexar"
+                ),
+              ]),
+
+              progList.length
+                ? el(
+                    "ul",
+                    { class: "list mt-2" },
+                    progList.map((p) => el("li", {}, p.nome || "Programa"))
+                  )
+                : el(
+                    "div",
+                    { class: "small mt-2" },
+                    "Nenhum programa anexado."
+                  ),
+
+              el("div", { class: "row mt-3 wrap" }, [
+                Field("Anexar alvo", targetSel),
+                el(
+                  "button",
+                  {
+                    class: "btn secondary",
+                    onclick: () => attachTarget(f.id, targetSel.value),
+                  },
+                  "Anexar"
+                ),
+              ]),
+
+              alvoList.length
+                ? el(
+                    "ul",
+                    { class: "list mt-2" },
+                    alvoList.map((a) => el("li", {}, a.label || "Alvo"))
+                  )
+                : el("div", { class: "small mt-2" }, "Nenhum alvo anexado."),
+            ]),
+          ])
+        );
+      });
+    };
+
+    const loadFolders = async () => {
+      if (!selectedPatientId) {
+        folders = [];
+        renderFolders();
+        return;
+      }
+      try {
+        const headers = getAuthHeaders();
+        const url = `${API_BASE}/api/aba/pastas-curriculares?pacienteId=${encodeURIComponent(
+          selectedPatientId
+        )}`;
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          console.error(
+            "Erro ao carregar pastas curriculares",
+            await res.text().catch(() => "")
+          );
+          folders = [];
+          renderFolders();
+          return;
+        }
+        const data = await safeJson(res);
+        folders = Array.isArray(data) ? data : [];
+        renderFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao carregar pastas curriculares", e);
+        folders = [];
+        renderFolders();
+      }
+    };
+
+    wrap.appendChild(header);
+    wrap.appendChild(listWrap);
+    // carregamento inicial
+    loadFolders();
+    return wrap;
   },
 
   Therapists() {
@@ -1034,7 +1335,9 @@ const Views = {
           .filter(Boolean);
 
         if (tokens.length) {
-          const byLabel = new Map(targets.map((t) => [String(t.label), String(t.id)]));
+          const byLabel = new Map(
+            targets.map((t) => [String(t.label), String(t.id)])
+          );
           const selectedIds = new Set(
             tokens
               .map((t) => byLabel.get(t))
@@ -1156,7 +1459,8 @@ const Views = {
                 el("option", { value: String(created.id) }, created.label)
               );
               Array.from(targetsMultiSel.options).forEach((opt) => {
-                if (String(opt.value) === String(created.id)) opt.selected = true;
+                if (String(opt.value) === String(created.id))
+                  opt.selected = true;
               });
               if (typeof targetsMultiSel.__syncTargetsText === "function") {
                 targetsMultiSel.__syncTargetsText();
@@ -1175,7 +1479,10 @@ const Views = {
         el("div", {}, [
           el("label", { class: "label" }, "Programa"),
           templateSel,
-          el("div", { class: "row wrap mt-1" }, [newProgramInput, saveProgramBtn]),
+          el("div", { class: "row wrap mt-1" }, [
+            newProgramInput,
+            saveProgramBtn,
+          ]),
         ]),
         el("div", { class: "mt-2" }, [
           el("label", { class: "label" }, "Alvos"),
@@ -1185,7 +1492,10 @@ const Views = {
             { class: "small mt-1" },
             "Selecione um ou mais alvos (Ctrl/Shift no Windows)."
           ),
-          el("div", { class: "row wrap mt-1" }, [newTargetInput, saveTargetBtn]),
+          el("div", { class: "row wrap mt-1" }, [
+            newTargetInput,
+            saveTargetBtn,
+          ]),
         ]),
         Field("Paciente *", patientSel),
         Field("Nome do Programa *", name),
@@ -1241,7 +1551,10 @@ const Views = {
                     });
                   }
                   if (!res.ok) {
-                    console.error("Erro ao salvar programa ABA", await res.text());
+                    console.error(
+                      "Erro ao salvar programa ABA",
+                      await res.text()
+                    );
                     return toast("Erro ao salvar programa no servidor");
                   }
                   await syncFromBackend();
@@ -1603,7 +1916,9 @@ const Views = {
 
     const render = (patientId) => {
       // Limpa gráficos antigos
-      charts.forEach((c) => c && typeof c.destroy === "function" && c.destroy());
+      charts.forEach(
+        (c) => c && typeof c.destroy === "function" && c.destroy()
+      );
       charts = [];
 
       listWrap.innerHTML = "";
@@ -2167,6 +2482,11 @@ Router.mount("/", "Dashboard", Views.Dashboard);
 Router.mount("/therapists", "Terapeutas", Views.Therapists);
 Router.mount("/patients", "Pacientes", Views.Patients);
 Router.mount("/programs", "Programas", Views.Programs);
+Router.mount(
+  "/pastas-curriculares",
+  "Pastas Curriculares",
+  Views.CurricularFolders
+);
 Router.mount("/performance", "Desempenho", Views.Performance);
 Router.mount("/evolution", "Evolução de Critério", Views.Evolution);
 Router.mount("/plans", "Planos Terapêuticos", Views.Plans);
