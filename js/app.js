@@ -1475,6 +1475,68 @@ const Views = {
         "Salvar alvo na lista"
       );
 
+      const deleteSelectedTargetsBtn = el(
+        "button",
+        {
+          class: "btn danger mt-1",
+          onclick: async () => {
+            const selected = Array.from(targetsMultiSel.selectedOptions).map(
+              (opt) => ({ id: String(opt.value), label: opt.textContent || "" })
+            );
+            if (!selected.length) return toast("Selecione o(s) alvo(s) para excluir");
+
+            const names = selected
+              .map((s) => String(s.label || "").trim())
+              .filter(Boolean)
+              .join(", ");
+            const ok = confirm(
+              `Excluir ${selected.length} alvo(s)?\n\n${names || "(sem nome)"}`
+            );
+            if (!ok) return;
+
+            try {
+              const headers = getAuthHeaders();
+              for (const s of selected) {
+                const res = await fetch(`${API_BASE}/api/aba/alvos/${s.id}`, {
+                  method: "DELETE",
+                  headers,
+                });
+                if (!res.ok) {
+                  console.error("Erro ao excluir alvo ABA", await res.text());
+                  toast("Erro ao excluir um alvo no servidor");
+                  return;
+                }
+              }
+
+              // Atualiza Store e selects
+              const removedIds = new Set(selected.map((s) => String(s.id)));
+              Store.set((st) => ({
+                ...st,
+                targets: (st.targets || []).filter(
+                  (t) => !removedIds.has(String(t.id))
+                ),
+              }));
+
+              // Remove opções do select atual
+              Array.from(targetsMultiSel.options).forEach((opt) => {
+                if (removedIds.has(String(opt.value))) opt.remove();
+              });
+
+              // Re-sincroniza o textarea de comportamento alvo
+              if (typeof targetsMultiSel.__syncTargetsText === "function") {
+                targetsMultiSel.__syncTargetsText();
+              }
+
+              toast("Alvo(s) excluído(s)");
+            } catch (e) {
+              console.error("ABA+: erro ao excluir alvo", e);
+              toast("Falha na comunicação com o servidor");
+            }
+          },
+        },
+        "Excluir alvo selecionado"
+      );
+
       const form = el("div", {}, [
         el("div", {}, [
           el("label", { class: "label" }, "Programa"),
@@ -1495,6 +1557,7 @@ const Views = {
           el("div", { class: "row wrap mt-1" }, [
             newTargetInput,
             saveTargetBtn,
+            deleteSelectedTargetsBtn,
           ]),
         ]),
         Field("Paciente *", patientSel),
