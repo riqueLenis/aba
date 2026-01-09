@@ -757,6 +757,17 @@ textarea.form-input {
   min-width: 200px;
 }
 
+.curricular-folder-details {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background-color: #f8fafc;
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius-md);
+  color: #334155;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+}
+
 .info-message,
 .error-message {
   text-align: center;

@@ -42,6 +42,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const sessionFormPatientName = document.getElementById(
     "session-form-patient-name"
   );
+  const curricularFolderSelector = document.getElementById(
+    "curricular-folder-selector"
+  );
+  const curricularFolderDetails = document.getElementById(
+    "curricular-folder-details"
+  );
   //modulo modal
   const sessionDetailModal = document.getElementById("session-detail-modal");
   const closeModalBtn = document.getElementById("close-modal-btn");
@@ -116,6 +122,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let allPacientes = [];
   let terapeutasDisponiveis = [];
+  let curricularFoldersCache = [];
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${token}`,
@@ -158,6 +165,17 @@ document.addEventListener("DOMContentLoaded", () => {
         '<p class="info-message">Por favor, selecione um paciente para ver suas sessões.</p>';
       sessionFormContainer.classList.add("hidden");
       if (showSessionFormBtn) showSessionFormBtn.disabled = true;
+
+      if (curricularFolderSelector) {
+        curricularFoldersCache = [];
+        curricularFolderSelector.innerHTML =
+          '<option value="">Selecione um paciente acima</option>';
+        curricularFolderSelector.disabled = true;
+      }
+      if (curricularFolderDetails) {
+        curricularFolderDetails.textContent = "";
+        curricularFolderDetails.classList.add("hidden");
+      }
     }
     if (sectionId === "agenda-section") inicializarCalendario();
     if (sectionId === "financeiro-section") {
@@ -906,10 +924,107 @@ document.addEventListener("DOMContentLoaded", () => {
         option.textContent = p.nome_completo;
         patientSelector.appendChild(option);
       });
+
+      if (curricularFolderSelector) {
+        curricularFoldersCache = [];
+        curricularFolderSelector.innerHTML =
+          '<option value="">Selecione um paciente acima</option>';
+        curricularFolderSelector.disabled = true;
+      }
+      if (curricularFolderDetails) {
+        curricularFolderDetails.textContent = "";
+        curricularFolderDetails.classList.add("hidden");
+      }
     } catch (error) {
       console.error(error);
       patientSelector.innerHTML =
         '<option value="">Erro ao carregar pacientes</option>';
+
+      if (curricularFolderSelector) {
+        curricularFoldersCache = [];
+        curricularFolderSelector.innerHTML =
+          '<option value="">Erro ao carregar pastas curriculares</option>';
+        curricularFolderSelector.disabled = true;
+      }
+      if (curricularFolderDetails) {
+        curricularFolderDetails.textContent = "";
+        curricularFolderDetails.classList.add("hidden");
+      }
+    }
+  };
+
+  const renderCurricularFolderDetails = (folder) => {
+    if (!curricularFolderDetails) return;
+
+    if (!folder) {
+      curricularFolderDetails.textContent = "";
+      curricularFolderDetails.classList.add("hidden");
+      return;
+    }
+
+    const programas = Array.isArray(folder.programas) ? folder.programas : [];
+    const alvos = Array.isArray(folder.alvos) ? folder.alvos : [];
+
+    const programasText = programas.length
+      ? programas.map((p) => p?.nome).filter(Boolean).join(", ")
+      : "—";
+    const alvosText = alvos.length
+      ? alvos.map((a) => a?.label).filter(Boolean).join(", ")
+      : "—";
+
+    curricularFolderDetails.textContent = `Programas: ${programasText}\nAlvos: ${alvosText}`;
+    curricularFolderDetails.classList.remove("hidden");
+  };
+
+  const carregarPastasCurriculares = async (pacienteId) => {
+    if (!curricularFolderSelector) return;
+
+    if (!pacienteId) {
+      curricularFoldersCache = [];
+      curricularFolderSelector.innerHTML =
+        '<option value="">Selecione um paciente acima</option>';
+      curricularFolderSelector.disabled = true;
+      renderCurricularFolderDetails(null);
+      return;
+    }
+
+    curricularFolderSelector.disabled = true;
+    curricularFolderSelector.innerHTML =
+      '<option value="">Carregando pastas curriculares...</option>';
+    renderCurricularFolderDetails(null);
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/aba/pastas-curriculares?pacienteId=${encodeURIComponent(
+          pacienteId
+        )}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!response.ok) throw new Error("Falha ao buscar pastas curriculares.");
+
+      const pastas = await response.json();
+      curricularFoldersCache = Array.isArray(pastas) ? pastas : [];
+
+      curricularFolderSelector.innerHTML =
+        '<option value="">(Opcional) Selecione uma pasta curricular</option>';
+
+      curricularFoldersCache.forEach((f) => {
+        const option = document.createElement("option");
+        option.value = f.id;
+        const qtdProgramas = Array.isArray(f.programas) ? f.programas.length : 0;
+        const qtdAlvos = Array.isArray(f.alvos) ? f.alvos.length : 0;
+        option.textContent = `${f.nome} (${qtdProgramas} programas, ${qtdAlvos} alvos)`;
+        curricularFolderSelector.appendChild(option);
+      });
+
+      curricularFolderSelector.disabled = false;
+    } catch (error) {
+      console.error(error);
+      curricularFoldersCache = [];
+      curricularFolderSelector.innerHTML =
+        '<option value="">Erro ao carregar pastas curriculares</option>';
+      curricularFolderSelector.disabled = true;
+      renderCurricularFolderDetails(null);
     }
   };
   const carregarSessoes = async (pacienteId) => {
@@ -1638,12 +1753,25 @@ document.addEventListener("DOMContentLoaded", () => {
       showSessionFormBtn.disabled = !pacienteId;
       if (pacienteId) {
         carregarSessoes(pacienteId);
+        carregarPastasCurriculares(pacienteId);
       } else {
         sessionListContainer.innerHTML =
           '<p class="info-message">Por favor, selecione um paciente para ver suas sessões.</p>';
+        carregarPastasCurriculares("");
       }
     });
   }
+
+  if (curricularFolderSelector) {
+    curricularFolderSelector.addEventListener("change", () => {
+      const selectedId = curricularFolderSelector.value;
+      const folder = curricularFoldersCache.find(
+        (f) => String(f.id) === String(selectedId)
+      );
+      renderCurricularFolderDetails(folder || null);
+    });
+  }
+
   if (showSessionFormBtn) {
     showSessionFormBtn.addEventListener("click", () => {
       const selectedOption =
@@ -1657,6 +1785,10 @@ document.addEventListener("DOMContentLoaded", () => {
       ).textContent = `Registrar Nova Sessão para ${selectedOption.text}`;
       sessionForm.querySelector('button[type="submit"]').textContent =
         "Salvar Sessão";
+
+      const pacienteId = patientSelector.value;
+      if (pacienteId) carregarPastasCurriculares(pacienteId);
+      renderCurricularFolderDetails(null);
     });
   }
   if (cancelSessionFormBtn) {
