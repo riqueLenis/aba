@@ -157,6 +157,401 @@ document.addEventListener("DOMContentLoaded", () => {
   let terapeutasDisponiveis = [];
   let curricularFoldersCache = [];
 
+  // ============================
+  // ABA - Avaliação em tempo real (sem alterar schema)
+  // Armazena o registro no campo resumo_sessao em um bloco JSON delimitado.
+  // ============================
+  const ABA_EVAL_BLOCK_START = "\n\n[ABA_AVALIACAO]\n";
+  const ABA_EVAL_BLOCK_END = "\n[/ABA_AVALIACAO]\n";
+  const ABA_ATTEMPT_CODES = ["-", "AFT", "AFP", "AG", "AV", "+"];
+
+  let abaLiveEval = null;
+  let abaLiveEvalTimer = null;
+
+  const splitResumoSessao = (raw) => {
+    const text = String(raw || "");
+    const startIdx = text.indexOf(ABA_EVAL_BLOCK_START);
+    const endIdx = startIdx >= 0 ? text.indexOf(ABA_EVAL_BLOCK_END, startIdx) : -1;
+    if (startIdx < 0 || endIdx < 0) {
+      return { notes: text, eval: null };
+    }
+
+    const notes = (text.slice(0, startIdx) + text.slice(endIdx + ABA_EVAL_BLOCK_END.length)).trimEnd();
+    const jsonRaw = text.slice(startIdx + ABA_EVAL_BLOCK_START.length, endIdx).trim();
+    try {
+      const parsed = JSON.parse(jsonRaw);
+      return { notes, eval: parsed };
+    } catch {
+      return { notes, eval: null };
+    }
+  };
+
+  const mergeResumoSessao = (notes, evalObj) => {
+    const base = splitResumoSessao(notes || "").notes.trimEnd();
+    if (!evalObj) return base;
+    return (
+      base +
+      ABA_EVAL_BLOCK_START +
+      JSON.stringify(evalObj) +
+      ABA_EVAL_BLOCK_END
+    ).trimEnd();
+  };
+
+  const stopAbaTimer = () => {
+    if (abaLiveEvalTimer) {
+      clearInterval(abaLiveEvalTimer);
+      abaLiveEvalTimer = null;
+    }
+  };
+
+  const formatElapsed = (startIso, endIso) => {
+    if (!startIso) return "00:00";
+    const start = new Date(startIso).getTime();
+    const end = endIso ? new Date(endIso).getTime() : Date.now();
+    const sec = Math.max(0, Math.floor((end - start) / 1000));
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  };
+
+  const buildAbaEvalFromFolder = (folder, existingEval) => {
+    const programas = Array.isArray(folder?.programas) ? folder.programas : [];
+    const alvos = Array.isArray(folder?.alvos) ? folder.alvos : [];
+    const totalAttempts =
+      Number(existingEval?.totalAttempts) > 0
+        ? Number(existingEval.totalAttempts)
+        : 2;
+
+    const base = {
+      version: 1,
+      folderId: String(folder?.id ?? ""),
+      folderName: String(folder?.nome ?? ""),
+      startedAt: existingEval?.startedAt || null,
+      endedAt: existingEval?.endedAt || null,
+      started: Boolean(existingEval?.started),
+      totalAttempts,
+      rows: [],
+    };
+
+    const existingRows = Array.isArray(existingEval?.rows) ? existingEval.rows : [];
+    const existingMap = new Map(
+      existingRows
+        .filter((r) => r && r.programId != null && r.targetId != null)
+        .map((r) => [`${String(r.programId)}::${String(r.targetId)}`, r])
+    );
+
+    programas.forEach((p) => {
+      const programId = String(p?.id ?? p?.codigo ?? p?.nome ?? "");
+      const programName = String(p?.nome ?? p?.label ?? p?.codigo ?? programId);
+
+      alvos.forEach((a) => {
+        const targetId = String(a?.id ?? a?.codigo ?? a?.label ?? "");
+        const targetLabel = String(a?.label ?? a?.nome ?? a?.codigo ?? targetId);
+
+        const key = `${programId}::${targetId}`;
+        const prev = existingMap.get(key);
+        const attempts = Array.isArray(prev?.attempts) ? prev.attempts.slice(0, totalAttempts) : [];
+        while (attempts.length < totalAttempts) attempts.push(null);
+
+        base.rows.push({
+          programId,
+          programName,
+          targetId,
+          targetLabel,
+          attempts,
+        });
+      });
+    });
+
+    return base;
+  };
+
+  const getAbaRow = (programId, targetId) => {
+    if (!abaLiveEval || !Array.isArray(abaLiveEval.rows)) return null;
+    return (
+      abaLiveEval.rows.find(
+        (r) => String(r.programId) === String(programId) && String(r.targetId) === String(targetId)
+      ) || null
+    );
+  };
+
+  const updateAbaEvalUI = () => {
+    if (!curricularFolderDetails) return;
+    if (!abaLiveEval) return;
+
+    const headerTimer = curricularFolderDetails.querySelector("[data-aba-elapsed]");
+    if (headerTimer)
+      headerTimer.textContent = formatElapsed(abaLiveEval.startedAt, abaLiveEval.endedAt);
+
+    curricularFolderDetails
+      .querySelectorAll("[data-aba-row]")
+      .forEach((rowEl) => {
+        const programId = rowEl.getAttribute("data-program-id");
+        const targetId = rowEl.getAttribute("data-target-id");
+        const row = getAbaRow(programId, targetId);
+        if (!row) return;
+
+        const filled = row.attempts.filter(Boolean).length;
+        const total = abaLiveEval.totalAttempts;
+        const current = Math.min(filled + 1, total);
+
+        const attemptTextEl = rowEl.querySelector("[data-aba-attempt-text]");
+        if (attemptTextEl) {
+          attemptTextEl.textContent = filled >= total ? `Tentativas: ${total}/${total}` : `Tentativa ${current}/${total}`;
+        }
+
+        const historyEl = rowEl.querySelector("[data-aba-history]");
+        if (historyEl) {
+          historyEl.innerHTML = "";
+          row.attempts.forEach((code, idx) => {
+            const pill = document.createElement("span");
+            pill.className = "aba-attempt-pill";
+            pill.textContent = code ? String(code) : `${idx + 1}`;
+            if (code) pill.classList.add("filled");
+            historyEl.appendChild(pill);
+          });
+        }
+
+        rowEl.querySelectorAll("button[data-aba-code]").forEach((btn) => {
+          const disabled = !abaLiveEval.started || filled >= total;
+          btn.disabled = disabled;
+        });
+
+        const clearBtn = rowEl.querySelector("button[data-aba-clear]");
+        if (clearBtn) clearBtn.disabled = !abaLiveEval.started;
+      });
+
+    const startBtn = curricularFolderDetails.querySelector("button[data-aba-start]");
+    const stopBtn = curricularFolderDetails.querySelector("button[data-aba-stop]");
+    if (startBtn) startBtn.disabled = abaLiveEval.started;
+    if (stopBtn) stopBtn.disabled = !abaLiveEval.started;
+
+    const attemptsInput = curricularFolderDetails.querySelector("input[data-aba-total-attempts]");
+    if (attemptsInput) attemptsInput.disabled = abaLiveEval.started;
+  };
+
+  const renderAbaEvalUI = () => {
+    if (!curricularFolderDetails) return;
+    curricularFolderDetails.innerHTML = "";
+
+    if (!abaLiveEval) {
+      curricularFolderDetails.classList.add("hidden");
+      return;
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "aba-eval";
+
+    const header = document.createElement("div");
+    header.className = "aba-eval-header";
+
+    const title = document.createElement("div");
+    title.className = "aba-eval-title";
+    title.textContent = `Avaliação ABA+ — ${abaLiveEval.folderName || "Pasta curricular"}`;
+
+    const actions = document.createElement("div");
+    actions.className = "aba-eval-actions";
+
+    const attemptsLabel = document.createElement("label");
+    attemptsLabel.className = "aba-eval-attempts-label";
+    attemptsLabel.textContent = "Tentativas:";
+
+    const attemptsInput = document.createElement("input");
+    attemptsInput.type = "number";
+    attemptsInput.min = "1";
+    attemptsInput.max = "20";
+    attemptsInput.value = String(abaLiveEval.totalAttempts || 2);
+    attemptsInput.className = "form-input aba-eval-attempts-input";
+    attemptsInput.setAttribute("data-aba-total-attempts", "1");
+
+    const elapsed = document.createElement("span");
+    elapsed.className = "aba-eval-elapsed";
+    elapsed.setAttribute("data-aba-elapsed", "1");
+    elapsed.textContent = formatElapsed(abaLiveEval.startedAt, abaLiveEval.endedAt);
+
+    const startBtn = document.createElement("button");
+    startBtn.type = "button";
+    startBtn.className = "btn btn-primary btn-sm";
+    startBtn.textContent = "Iniciar atendimento";
+    startBtn.setAttribute("data-aba-start", "1");
+
+    const stopBtn = document.createElement("button");
+    stopBtn.type = "button";
+    stopBtn.className = "btn btn-secondary btn-sm";
+    stopBtn.textContent = "Encerrar";
+    stopBtn.setAttribute("data-aba-stop", "1");
+
+    actions.append(attemptsLabel, attemptsInput, elapsed, startBtn, stopBtn);
+    header.append(title, actions);
+
+    const list = document.createElement("div");
+    list.className = "aba-eval-list";
+
+    if (!abaLiveEval.rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "aba-eval-empty";
+      empty.textContent =
+        "Nenhum programa/alvo cadastrado nesta pasta curricular. Anexe programas e alvos na ABA+.";
+      list.appendChild(empty);
+    } else {
+      const byProgram = new Map();
+      abaLiveEval.rows.forEach((r) => {
+        const key = String(r.programId);
+        if (!byProgram.has(key)) {
+          byProgram.set(key, { programName: r.programName, rows: [] });
+        }
+        byProgram.get(key).rows.push(r);
+      });
+
+      Array.from(byProgram.entries()).forEach(([programId, group]) => {
+        const section = document.createElement("div");
+        section.className = "aba-program";
+
+        const programTitle = document.createElement("div");
+        programTitle.className = "aba-program-title";
+        programTitle.textContent = group.programName || `Programa ${programId}`;
+
+        const targetsWrap = document.createElement("div");
+        targetsWrap.className = "aba-targets";
+
+        group.rows.forEach((r) => {
+          const row = document.createElement("div");
+          row.className = "aba-target-row";
+          row.setAttribute("data-aba-row", "1");
+          row.setAttribute("data-program-id", String(r.programId));
+          row.setAttribute("data-target-id", String(r.targetId));
+
+          const left = document.createElement("div");
+          left.className = "aba-target-left";
+
+          const targetLabel = document.createElement("div");
+          targetLabel.className = "aba-target-label";
+          targetLabel.textContent = r.targetLabel;
+
+          const attemptText = document.createElement("div");
+          attemptText.className = "aba-target-attempt";
+          attemptText.setAttribute("data-aba-attempt-text", "1");
+          attemptText.textContent = "Tentativa 1/2";
+
+          left.append(targetLabel, attemptText);
+
+          const controls = document.createElement("div");
+          controls.className = "aba-target-controls";
+
+          ABA_ATTEMPT_CODES.forEach((code) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "aba-code-btn";
+            b.textContent = code;
+            b.setAttribute("data-aba-code", code);
+            controls.appendChild(b);
+          });
+
+          const clearBtn = document.createElement("button");
+          clearBtn.type = "button";
+          clearBtn.className = "aba-clear-btn";
+          clearBtn.textContent = "Limpar";
+          clearBtn.setAttribute("data-aba-clear", "1");
+          controls.appendChild(clearBtn);
+
+          const history = document.createElement("div");
+          history.className = "aba-target-history";
+          history.setAttribute("data-aba-history", "1");
+
+          row.append(left, controls, history);
+          targetsWrap.appendChild(row);
+        });
+
+        section.append(programTitle, targetsWrap);
+        list.appendChild(section);
+      });
+    }
+
+    wrap.append(header, list);
+    curricularFolderDetails.appendChild(wrap);
+    curricularFolderDetails.classList.remove("hidden");
+
+    updateAbaEvalUI();
+  };
+
+  const handleAbaEvalInteraction = (event) => {
+    if (!abaLiveEval || !curricularFolderDetails) return;
+
+    const startBtn = event.target.closest?.("button[data-aba-start]");
+    if (startBtn) {
+      abaLiveEval.started = true;
+      abaLiveEval.startedAt = abaLiveEval.startedAt || new Date().toISOString();
+      abaLiveEval.endedAt = null;
+
+      stopAbaTimer();
+      abaLiveEvalTimer = setInterval(() => updateAbaEvalUI(), 1000);
+      updateAbaEvalUI();
+      return;
+    }
+
+    const stopBtn = event.target.closest?.("button[data-aba-stop]");
+    if (stopBtn) {
+      abaLiveEval.started = false;
+      abaLiveEval.endedAt = new Date().toISOString();
+      stopAbaTimer();
+      updateAbaEvalUI();
+      return;
+    }
+
+    const codeBtn = event.target.closest?.("button[data-aba-code]");
+    if (codeBtn) {
+      if (!abaLiveEval.started) return;
+      const rowEl = event.target.closest?.("[data-aba-row]");
+      if (!rowEl) return;
+      const programId = rowEl.getAttribute("data-program-id");
+      const targetId = rowEl.getAttribute("data-target-id");
+      const code = codeBtn.getAttribute("data-aba-code");
+      if (!programId || !targetId || !code) return;
+      const row = getAbaRow(programId, targetId);
+      if (!row) return;
+      const nextIdx = row.attempts.findIndex((x) => !x);
+      if (nextIdx < 0) return;
+      row.attempts[nextIdx] = code;
+      updateAbaEvalUI();
+      return;
+    }
+
+    const clearBtn = event.target.closest?.("button[data-aba-clear]");
+    if (clearBtn) {
+      if (!abaLiveEval.started) return;
+      const rowEl = event.target.closest?.("[data-aba-row]");
+      if (!rowEl) return;
+      const programId = rowEl.getAttribute("data-program-id");
+      const targetId = rowEl.getAttribute("data-target-id");
+      if (!programId || !targetId) return;
+      const row = getAbaRow(programId, targetId);
+      if (!row) return;
+      row.attempts = Array.from({ length: abaLiveEval.totalAttempts }, () => null);
+      updateAbaEvalUI();
+    }
+  };
+
+  const handleAbaEvalAttemptsChange = (event) => {
+    if (!abaLiveEval || !curricularFolderDetails) return;
+    const input = event.target;
+    if (!input || !input.matches?.("input[data-aba-total-attempts]")) return;
+    const nextTotal = Math.max(1, Math.min(20, Number(input.value || 2)));
+    if (!Number.isFinite(nextTotal)) return;
+    if (abaLiveEval.started) return;
+    abaLiveEval.totalAttempts = nextTotal;
+
+    // Ajusta o tamanho dos arrays preservando o histórico do início
+    if (Array.isArray(abaLiveEval.rows)) {
+      abaLiveEval.rows.forEach((r) => {
+        const prev = Array.isArray(r.attempts) ? r.attempts : [];
+        const next = prev.slice(0, nextTotal);
+        while (next.length < nextTotal) next.push(null);
+        r.attempts = next;
+      });
+    }
+    updateAbaEvalUI();
+  };
+
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -990,23 +1385,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!curricularFolderDetails) return;
 
     if (!folder) {
+      abaLiveEval = null;
+      stopAbaTimer();
       curricularFolderDetails.textContent = "";
       curricularFolderDetails.classList.add("hidden");
       return;
     }
 
-    const programas = Array.isArray(folder.programas) ? folder.programas : [];
-    const alvos = Array.isArray(folder.alvos) ? folder.alvos : [];
-
-    const programasText = programas.length
-      ? programas.map((p) => p?.nome).filter(Boolean).join(", ")
-      : "—";
-    const alvosText = alvos.length
-      ? alvos.map((a) => a?.label).filter(Boolean).join(", ")
-      : "—";
-
-    curricularFolderDetails.textContent = `Programas: ${programasText}\nAlvos: ${alvosText}`;
-    curricularFolderDetails.classList.remove("hidden");
+    // Se estiver editando e já houver um bloco salvo no resumo, restaurar tentativas.
+    // A restauração real acontece quando abrirFormularioEdicaoSessao setar abaLiveEval diretamente.
+    const existingEval =
+      abaLiveEval && String(abaLiveEval.folderId) === String(folder.id)
+        ? abaLiveEval
+        : null;
+    abaLiveEval = buildAbaEvalFromFolder(folder, existingEval);
+    renderAbaEvalUI();
   };
 
   const carregarPastasCurriculares = async (pacienteId) => {
@@ -1237,7 +1630,8 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="detail-section">
                 <h4 class="detail-section-title">Anotações da Sessão</h4>
                 <div class="detail-item full-width"><span>${
-                  sessao.resumo_sessao || "Nenhuma anotação registrada."
+                  splitResumoSessao(sessao.resumo_sessao).notes ||
+                  "Nenhuma anotação registrada."
                 }</span></div>
             </div>
         `;
@@ -1270,6 +1664,10 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error("Não foi possível carregar os dados da sessão.");
       const sessao = await response.json();
 
+      const { notes: resumoNotes, eval: abaEvalSaved } = splitResumoSessao(
+        sessao.resumo_sessao
+      );
+
       fecharModal();
       document.getElementById("sessoes-link").click();
       setTimeout(() => {
@@ -1293,7 +1691,7 @@ document.addEventListener("DOMContentLoaded", () => {
             form.elements["status_pagamento"].value = "Pendente";
           }
         }
-        form.elements["resumo_sessao"].value = sessao.resumo_sessao;
+        form.elements["resumo_sessao"].value = resumoNotes;
 
         sessionIdInput.value = sessao.id;
 
@@ -1307,6 +1705,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (sessionFormContainer)
           sessionFormContainer.classList.remove("hidden");
+
+        // Restaura avaliação ABA (se existir)
+        stopAbaTimer();
+        abaLiveEval = null;
+
+        const pacienteId = patientSelector.value;
+        const restore = async () => {
+          if (!pacienteId) return;
+          await carregarPastasCurriculares(pacienteId);
+
+          const folderId = abaEvalSaved?.folderId;
+          if (curricularFolderSelector && folderId) {
+            curricularFolderSelector.value = String(folderId);
+            const folder = curricularFoldersCache.find(
+              (f) => String(f.id) === String(folderId)
+            );
+            if (folder) {
+              abaLiveEval = buildAbaEvalFromFolder(folder, abaEvalSaved);
+              // Mantém flags/tempos salvos
+              abaLiveEval.started = Boolean(abaEvalSaved?.started);
+              abaLiveEval.startedAt = abaEvalSaved?.startedAt || null;
+              abaLiveEval.endedAt = abaEvalSaved?.endedAt || null;
+              renderAbaEvalUI();
+              if (abaLiveEval.started) {
+                stopAbaTimer();
+                abaLiveEvalTimer = setInterval(() => updateAbaEvalUI(), 1000);
+              }
+            } else {
+              renderCurricularFolderDetails(null);
+            }
+          } else {
+            renderCurricularFolderDetails(null);
+          }
+        };
+
+        restore().catch((e) => console.warn("ABA+: falha ao restaurar avaliação", e));
       }, 100);
     } catch (error) {
       alert(error.message);
@@ -1820,12 +2254,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (curricularFolderSelector) {
     curricularFolderSelector.addEventListener("change", () => {
+      // Troca de pasta curricular reinicia o atendimento em andamento
+      stopAbaTimer();
+      abaLiveEval = null;
       const selectedId = curricularFolderSelector.value;
       const folder = curricularFoldersCache.find(
         (f) => String(f.id) === String(selectedId)
       );
       renderCurricularFolderDetails(folder || null);
     });
+  }
+
+  if (curricularFolderDetails) {
+    curricularFolderDetails.addEventListener("click", handleAbaEvalInteraction);
+    curricularFolderDetails.addEventListener(
+      "change",
+      handleAbaEvalAttemptsChange
+    );
   }
 
   if (showSessionFormBtn) {
@@ -1850,6 +2295,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (cancelSessionFormBtn) {
     cancelSessionFormBtn.addEventListener("click", () => {
       sessionFormContainer.classList.add("hidden");
+      stopAbaTimer();
+      abaLiveEval = null;
+      renderCurricularFolderDetails(null);
     });
   }
 
@@ -1986,6 +2434,16 @@ document.addEventListener("DOMContentLoaded", () => {
         tipo_sessao: formData.get("tipo_sessao"),
         resumo_sessao: formData.get("resumo_sessao"),
       };
+
+      // Salva avaliação ABA no próprio resumo (sem alterar schema/API)
+      const hasAnyAbaAttempt =
+        abaLiveEval?.rows?.some?.((r) => Array.isArray(r.attempts) && r.attempts.some(Boolean)) ||
+        false;
+      const abaEvalToSave = abaLiveEval && (abaLiveEval.started || hasAnyAbaAttempt) ? abaLiveEval : null;
+      sessionData.resumo_sessao = mergeResumoSessao(
+        sessionData.resumo_sessao,
+        abaEvalToSave
+      );
 
       if (!sessionPaymentFieldsBlocked) {
         sessionData.valor_sessao = formData.get("valor_sessao");

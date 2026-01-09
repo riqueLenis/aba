@@ -825,6 +825,177 @@ textarea.form-input {
   color: #92400e;
 }
 
+/* ============================
+   ABA+ - Avaliação em tempo real (Sessões)
+   ============================ */
+.aba-eval {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.aba-eval-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.aba-eval-title {
+  font-weight: 700;
+}
+
+.aba-eval-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.aba-eval-attempts-label {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.aba-eval-attempts-input {
+  width: 84px;
+  padding: 6px 10px;
+}
+
+.aba-eval-elapsed {
+  font-size: 12px;
+  opacity: 0.85;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.aba-eval-list {
+  display: grid;
+  gap: 12px;
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.aba-program {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.aba-program-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.aba-targets {
+  display: grid;
+  gap: 10px;
+}
+
+.aba-target-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.aba-target-left {
+  min-width: 0;
+}
+
+.aba-target-label {
+  font-weight: 600;
+}
+
+.aba-target-attempt {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+.aba-target-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.aba-code-btn {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  min-width: 44px;
+  cursor: pointer;
+}
+
+.aba-code-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.aba-clear-btn {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.aba-clear-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.aba-target-history {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.aba-attempt-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px dashed rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.aba-attempt-pill.filled {
+  border-style: solid;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.aba-eval-empty {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+  .aba-target-row {
+    grid-template-columns: 1fr;
+  }
+  .aba-target-controls {
+    justify-content: flex-start;
+  }
+}
 .session-card-actions {
   display: flex;
   gap: var(--spacing-sm);
