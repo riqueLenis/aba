@@ -701,8 +701,19 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
   let queryText = "SELECT * FROM pacientes";
   let values = [];
 
-  if (role === "terapeuta" || role === "admin") {
-    // Admin agora também filtra por terapeuta_id (com exceção de compartilhamento do talitau)
+  if (role === "admin") {
+    // Admin (secretaria) precisa ver todos os pacientes para agendar sessões.
+    // Mantém a regra de compartilhamento restrito do Talitau.
+    const talitauId = await getTalitauUserId();
+    if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+      queryText +=
+        " WHERE (terapeuta_id IS NULL OR terapeuta_id <> $1) ORDER BY nome_completo;";
+      values = [talitauId];
+    } else {
+      queryText += " ORDER BY nome_completo;";
+    }
+  } else if (role === "terapeuta") {
+    // Terapeuta vê apenas seus pacientes (com exceção de compartilhamento do talitau)
     const talitauId = await getTalitauUserId();
     if (
       talitauId &&
@@ -1378,7 +1389,15 @@ app.get("/api/sessoes", verificarToken, async (req, res) => {
 
   let values = [];
 
-  if (role === "terapeuta" || role === "admin") {
+  if (role === "admin") {
+    // Admin (secretaria) enxerga todas as sessões para organizar agenda.
+    // Mantém a regra de compartilhamento restrito do Talitau.
+    const talitauId = await getTalitauUserId();
+    if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+      queryText += " WHERE (p.terapeuta_id IS NULL OR p.terapeuta_id <> $1)";
+      values = [talitauId];
+    }
+  } else if (role === "terapeuta") {
     const talitauId = await getTalitauUserId();
     if (
       talitauId &&

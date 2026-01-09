@@ -825,9 +825,7 @@ textarea.form-input {
   color: #92400e;
 }
 
-/* ============================
-   ABA+ - Avaliação em tempo real (Sessões)
-   ============================ */
+/* ABA+ - Avaliação em tempo real */
 .aba-eval {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
@@ -1372,7 +1370,7 @@ textarea.form-input {
 .accordion-item {
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  overflow: hidden; /* Garante que o conteúdo não vaze */
+  overflow: hidden;
 }
 
 .accordion-header {
@@ -1380,8 +1378,8 @@ textarea.form-input {
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding: 1rem; /* 16px */
-  background-color: #f9fafb; /* Cinza bem claro */
+  padding: 1rem;
+  background-color: #f9fafb;
   border: none;
   cursor: pointer;
   font-weight: 600;
@@ -1398,12 +1396,12 @@ textarea.form-input {
   transform: rotate(180deg);
 }
 .accordion-item.open .accordion-content {
-  max-height: 500px; /* Altura máxima para animação */
+  max-height: 500px;
   opacity: 1;
 }
 
 .accordion-content {
-  padding: 0 1rem 1rem 1rem; /* Padding só em baixo e lados */
+  padding: 0 1rem 1rem 1rem;
   background-color: #ffffff;
   max-height: 0;
   opacity: 0;

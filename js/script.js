@@ -48,6 +48,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const curricularFolderDetails = document.getElementById(
     "curricular-folder-details"
   );
+  const sessionTherapistGroup = document.getElementById(
+    "session-therapist-group"
+  );
+  const sessionTherapistSelector = document.getElementById(
+    "session-therapist-selector"
+  );
   //modulo modal
   const sessionDetailModal = document.getElementById("session-detail-modal");
   const closeModalBtn = document.getElementById("close-modal-btn");
@@ -156,11 +162,25 @@ document.addEventListener("DOMContentLoaded", () => {
   let allPacientes = [];
   let terapeutasDisponiveis = [];
   let curricularFoldersCache = [];
+  let pacientesDropdownCache = [];
 
-  // ============================
+  const ensureTherapistsLoaded = async () => {
+    if (userRole !== "admin") return;
+    if (terapeutasDisponiveis.length > 0) return;
+    try {
+      const resp = await fetch(`${API_BASE}/api/terapeutas-lista`, {
+        headers: getAuthHeaders(),
+      });
+      if (!resp.ok) throw new Error("Falha ao carregar terapeutas.");
+      terapeutasDisponiveis = await resp.json();
+    } catch (e) {
+      console.error("Erro ao buscar lista de terapeutas", e);
+      terapeutasDisponiveis = [];
+    }
+  };
+
   // ABA - Avaliação em tempo real (sem alterar schema)
   // Armazena o registro no campo resumo_sessao em um bloco JSON delimitado.
-  // ============================
   const ABA_EVAL_BLOCK_START = "\n\n[ABA_AVALIACAO]\n";
   const ABA_EVAL_BLOCK_END = "\n[/ABA_AVALIACAO]\n";
   const ABA_ATTEMPT_CODES = ["-", "AFT", "AFP", "AG", "AV", "+"];
@@ -321,10 +341,22 @@ document.addEventListener("DOMContentLoaded", () => {
         if (clearBtn) clearBtn.disabled = !abaLiveEval.started;
       });
 
-    const startBtn = curricularFolderDetails.querySelector("button[data-aba-start]");
-    const stopBtn = curricularFolderDetails.querySelector("button[data-aba-stop]");
+    const canRunEval = userRole === "terapeuta";
+
+    const startBtn = curricularFolderDetails.querySelector(
+      "button[data-aba-start]"
+    );
+    const stopBtn = curricularFolderDetails.querySelector(
+      "button[data-aba-stop]"
+    );
     if (startBtn) startBtn.disabled = abaLiveEval.started;
     if (stopBtn) stopBtn.disabled = !abaLiveEval.started;
+
+    // Admin (secretaria) não executa avaliação — só agenda.
+    if (!canRunEval) {
+      if (startBtn) startBtn.disabled = true;
+      if (stopBtn) stopBtn.disabled = true;
+    }
 
     const attemptsInput = curricularFolderDetails.querySelector("input[data-aba-total-attempts]");
     if (attemptsInput) attemptsInput.disabled = abaLiveEval.started;
@@ -476,6 +508,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const handleAbaEvalInteraction = (event) => {
     if (!abaLiveEval || !curricularFolderDetails) return;
+    if (userRole !== "terapeuta") return;
 
     const startBtn = event.target.closest?.("button[data-aba-start]");
     if (startBtn) {
@@ -533,6 +566,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const handleAbaEvalAttemptsChange = (event) => {
     if (!abaLiveEval || !curricularFolderDetails) return;
+    if (userRole !== "terapeuta") return;
     const input = event.target;
     if (!input || !input.matches?.("input[data-aba-total-attempts]")) return;
     const nextTotal = Math.max(1, Math.min(20, Number(input.value || 2)));
@@ -1343,10 +1377,28 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       if (!response.ok) throw new Error("Falha ao buscar pacientes.");
       const pacientes = await response.json();
+      pacientesDropdownCache = Array.isArray(pacientes) ? pacientes : [];
+
+      if (userRole === "admin") {
+        await ensureTherapistsLoaded();
+        if (sessionTherapistGroup) sessionTherapistGroup.classList.remove("hidden");
+        if (sessionTherapistSelector) {
+          sessionTherapistSelector.innerHTML =
+            '<option value="">Selecione o psicólogo...</option>';
+          terapeutasDisponiveis.forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.id;
+            opt.textContent = t.nome;
+            sessionTherapistSelector.appendChild(opt);
+          });
+        }
+      } else {
+        if (sessionTherapistGroup) sessionTherapistGroup.classList.add("hidden");
+      }
 
       patientSelector.innerHTML =
         '<option value="">Selecione um paciente</option>';
-      pacientes.forEach((p) => {
+      pacientesDropdownCache.forEach((p) => {
         const option = document.createElement("option");
         option.value = p.id;
         option.textContent = p.nome_completo;
@@ -2241,6 +2293,17 @@ document.addEventListener("DOMContentLoaded", () => {
     patientSelector.addEventListener("change", () => {
       const pacienteId = patientSelector.value;
       showSessionFormBtn.disabled = !pacienteId;
+
+      // Para admin, ao selecionar paciente, sugere o terapeuta responsável atual.
+      if (userRole === "admin" && sessionTherapistSelector) {
+        const p = pacientesDropdownCache.find(
+          (x) => String(x.id) === String(pacienteId)
+        );
+        const currentTherapistId = p?.terapeuta_id;
+        sessionTherapistSelector.value =
+          currentTherapistId != null ? String(currentTherapistId) : "";
+      }
+
       if (pacienteId) {
         carregarSessoes(pacienteId);
         carregarPastasCurriculares(pacienteId);
@@ -2290,6 +2353,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const pacienteId = patientSelector.value;
       if (pacienteId) carregarPastasCurriculares(pacienteId);
       renderCurricularFolderDetails(null);
+
+      // Admin precisa escolher o psicólogo responsável no agendamento
+      if (userRole === "admin") {
+        if (sessionTherapistGroup) sessionTherapistGroup.classList.remove("hidden");
+        if (sessionTherapistSelector) {
+          const p = pacientesDropdownCache.find(
+            (x) => String(x.id) === String(pacienteId)
+          );
+          const currentTherapistId = p?.terapeuta_id;
+          sessionTherapistSelector.value =
+            currentTherapistId != null ? String(currentTherapistId) : "";
+        }
+      }
     });
   }
   if (cancelSessionFormBtn) {
@@ -2424,6 +2500,52 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!pacienteId) {
         alert("Por favor, selecione um paciente primeiro.");
         return;
+      }
+
+      // Fluxo SECRETÁRIA (admin): escolhe psicólogo responsável antes de agendar
+      if (userRole === "admin") {
+        const terapeutaIdSelecionado = sessionTherapistSelector?.value;
+        if (!terapeutaIdSelecionado) {
+          alert("Selecione o psicólogo responsável antes de salvar a sessão.");
+          return;
+        }
+
+        const p = pacientesDropdownCache.find(
+          (x) => String(x.id) === String(pacienteId)
+        );
+        const currentTherapistId = p?.terapeuta_id;
+
+        // Se diferente, atualiza o terapeuta do paciente para garantir que
+        // o psicólogo veja o agendamento e possa iniciar o atendimento.
+        if (String(currentTherapistId || "") !== String(terapeutaIdSelecionado)) {
+          try {
+            const atribResp = await fetch(
+              `${API_BASE}/api/pacientes/${pacienteId}/atribuir`,
+              {
+                method: "PUT",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ terapeuta_id: terapeutaIdSelecionado }),
+              }
+            );
+            const atribJson = await atribResp.json().catch(() => null);
+            if (!atribResp.ok) {
+              throw new Error(
+                atribJson?.error ||
+                  "Falha ao atribuir o paciente ao psicólogo selecionado."
+              );
+            }
+            // Atualiza cache local
+            const updated = atribJson?.paciente;
+            if (updated) {
+              pacientesDropdownCache = pacientesDropdownCache.map((x) =>
+                String(x.id) === String(updated.id) ? updated : x
+              );
+            }
+          } catch (e) {
+            alert(e.message);
+            return;
+          }
+        }
       }
 
       const formData = new FormData(sessionForm);
