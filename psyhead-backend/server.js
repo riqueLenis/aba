@@ -67,6 +67,20 @@ const FINANCE_BLOCKED_EMAILS = new Set(
     .filter(Boolean)
 );
 
+// Bloqueio pontual de campos sensíveis dentro de agendamento de sessões
+// (remover funcionalidades de "valor" e "status do pagamento" apenas para emails específicos)
+// - Admin mantém acesso total
+// - Para os emails listados: backend ignora updates de valor/status e não retorna esses campos nas respostas de sessões
+const SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS = new Set(
+  (
+    process.env.SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS ||
+    "ana.suzuki07@gmail.com,taismacieldosantos@gmail.com,duda.capuano09@gmail.com,simoesamanda84@gmail.com,caetano7799@hotmail.com,magroisabella13@gmail.com"
+  )
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
 // Compartilhamento restrito: pacientes do admin talitauenopsi@gmail.com
 // Só podem ser acessados por: o próprio talitauenopsi + 3 emails liberados
 const TALITAU_EMAIL = String(
@@ -89,6 +103,21 @@ const normalizeEmail = (email) =>
   String(email || "")
     .trim()
     .toLowerCase();
+
+const isSessionPaymentFieldsBlockedUser = (terapeuta) => {
+  if (!terapeuta) return false;
+  if (terapeuta.role === "admin") return false;
+  const email = normalizeEmail(terapeuta.email);
+  return email ? SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS.has(email) : false;
+};
+
+const sanitizeSessaoForPaymentPrivacy = (sessao, terapeuta) => {
+  if (!isSessionPaymentFieldsBlockedUser(terapeuta)) return sessao;
+  const sanitized = { ...sessao };
+  delete sanitized.valor_sessao;
+  delete sanitized.status_pagamento;
+  return sanitized;
+};
 
 let TALITAU_USER_ID_CACHE = null;
 const getTalitauUserId = async () => {
@@ -1098,8 +1127,8 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
     duracao_minutos,
     tipo_sessao,
     resumo_sessao,
-    valor_sessao,
-    status_pagamento,
+    valor_sessao: rawValorSessao,
+    status_pagamento: rawStatusPagamento,
   } = req.body;
 
   if (!paciente_id || !data_sessao) {
@@ -1142,6 +1171,11 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *;
     `;
+
+    const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(req.terapeuta);
+    const valor_sessao = paymentFieldsBlocked ? null : rawValorSessao;
+    const status_pagamento = paymentFieldsBlocked ? "Pendente" : rawStatusPagamento;
+
     const values = [
       paciente_id,
       data_sessao,
@@ -1155,7 +1189,7 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
     const result = await pool.query(queryText, values);
     res.status(201).json({
       message: "Sessão registrada com sucesso!",
-      sessao: result.rows[0],
+      sessao: sanitizeSessaoForPaymentPrivacy(result.rows[0], req.terapeuta),
     });
   } catch (error) {
     console.error("Erro ao registrar sessão:", error);
@@ -1189,7 +1223,7 @@ app.get(
           error: "Sessão não encontrada.",
         });
       }
-      res.status(200).json(result.rows[0]);
+      res.status(200).json(sanitizeSessaoForPaymentPrivacy(result.rows[0], req.terapeuta));
     } catch (error) {
       console.error("Erro ao buscar detalhes da sessão:", error);
       res.status(500).json({
@@ -1210,8 +1244,8 @@ app.put(
       duracao_minutos,
       tipo_sessao,
       resumo_sessao,
-      valor_sessao,
-      status_pagamento,
+      valor_sessao: rawValorSessao,
+      status_pagamento: rawStatusPagamento,
     } = req.body;
 
     if (!data_sessao) {
@@ -1221,22 +1255,46 @@ app.put(
     }
 
     try {
-      const queryText = `
-      UPDATE sessoes SET
-        data_sessao = $1, duracao_minutos = $2, tipo_sessao = $3, 
-        resumo_sessao = $4, valor_sessao = $5, status_pagamento = $6
-      WHERE id = $7
-      RETURNING *;
-    `;
-      const values = [
-        data_sessao,
-        duracao_minutos,
-        tipo_sessao,
-        resumo_sessao,
-        valor_sessao,
-        status_pagamento,
-        id,
-      ];
+      const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(req.terapeuta);
+
+      let queryText;
+      let values;
+
+      if (paymentFieldsBlocked) {
+        // Para estes logins, não atualizar valor/status (mantém o dado existente no BD)
+        queryText = `
+        UPDATE sessoes SET
+          data_sessao = $1, duracao_minutos = $2, tipo_sessao = $3,
+          resumo_sessao = $4
+        WHERE id = $5
+        RETURNING *;
+      `;
+        values = [
+          data_sessao,
+          duracao_minutos,
+          tipo_sessao,
+          resumo_sessao,
+          id,
+        ];
+      } else {
+        queryText = `
+        UPDATE sessoes SET
+          data_sessao = $1, duracao_minutos = $2, tipo_sessao = $3,
+          resumo_sessao = $4, valor_sessao = $5, status_pagamento = $6
+        WHERE id = $7
+        RETURNING *;
+      `;
+        values = [
+          data_sessao,
+          duracao_minutos,
+          tipo_sessao,
+          resumo_sessao,
+          rawValorSessao,
+          rawStatusPagamento,
+          id,
+        ];
+      }
+
       const result = await pool.query(queryText, values);
 
       if (result.rows.length === 0) {
@@ -1246,7 +1304,7 @@ app.put(
       }
       res.status(200).json({
         message: "Sessão atualizada com sucesso!",
-        sessao: result.rows[0],
+        sessao: sanitizeSessaoForPaymentPrivacy(result.rows[0], req.terapeuta),
       });
     } catch (error) {
       console.error("Erro ao atualizar sessão:", error);
@@ -1296,7 +1354,9 @@ app.get(
         "SELECT * FROM sessoes WHERE paciente_id = $1 ORDER BY data_sessao DESC";
       const result = await pool.query(queryText, [pacienteId]);
 
-      res.status(200).json(result.rows);
+      res
+        .status(200)
+        .json(result.rows.map((r) => sanitizeSessaoForPaymentPrivacy(r, req.terapeuta)));
     } catch (error) {
       console.error("Erro ao buscar sessões do paciente:", error);
       res.status(500).json({

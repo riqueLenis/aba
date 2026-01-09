@@ -66,6 +66,17 @@ document.addEventListener("DOMContentLoaded", () => {
     "nucleocomportamentall@gmail.com",
   ]);
 
+  // Bloqueio pontual de campos sensíveis no agendamento de sessões
+  // (remove as funcionalidades de "valor" e "status do pagamento" apenas para logins específicos)
+  const SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS = new Set([
+    "ana.suzuki07@gmail.com",
+    "taismacieldosantos@gmail.com",
+    "duda.capuano09@gmail.com",
+    "simoesamanda84@gmail.com",
+    "caetano7799@hotmail.com",
+    "magroisabella13@gmail.com",
+  ]);
+
   const parseJwtPayload = (jwt) => {
     try {
       const parts = String(jwt || "").split(".");
@@ -92,7 +103,17 @@ document.addEventListener("DOMContentLoaded", () => {
     return email ? FINANCE_BLOCKED_EMAILS.has(email) : false;
   };
 
+  const isSessionPaymentFieldsBlockedUser = () => {
+    if (!token) return false;
+    if (userRole === "admin") return false;
+    if (userRole !== "terapeuta") return false;
+    const payload = parseJwtPayload(token);
+    const email = String(payload?.email || "").trim().toLowerCase();
+    return email ? SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS.has(email) : false;
+  };
+
   const financeBlocked = isFinanceBlockedUser();
+  const sessionPaymentFieldsBlocked = isSessionPaymentFieldsBlockedUser();
 
   const hideNavItem = (linkId) => {
     const link = document.getElementById(linkId);
@@ -118,6 +139,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // Seção Financeiro
     const financeiroSection = document.getElementById("financeiro-section");
     if (financeiroSection) financeiroSection.classList.add("hidden");
+  };
+
+  const hideSessionPaymentFieldsUI = () => {
+    const valorEl = document.getElementById("valor_sessao");
+    const valorGroup = valorEl?.closest?.(".form-group");
+    if (valorGroup) valorGroup.classList.add("hidden");
+    if (valorEl) valorEl.value = "";
+
+    const statusEl = document.getElementById("status_pagamento");
+    const statusGroup = statusEl?.closest?.(".form-group");
+    if (statusGroup) statusGroup.classList.add("hidden");
+    if (statusEl) statusEl.value = "Pendente";
   };
 
   let allPacientes = [];
@@ -1054,6 +1087,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const statusClass =
           s.status_pagamento === "Pago" ? "status-pago" : "status-pendente";
+        const pagamentoHTML = sessionPaymentFieldsBlocked
+          ? ""
+          : `
+                        <div class="session-card-info">
+                            <strong>Pagamento</strong>
+                            <p><span class="status-badge ${statusClass}">${s.status_pagamento}</span></p>
+                        </div>
+                    `;
         const cardHTML = `
                     <div class="session-card" data-session-id="${s.id}">
                         <div class="session-card-info">
@@ -1064,10 +1105,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             <strong>Duração</strong>
                             <p>${s.duracao_minutos} min</p>
                         </div>
-                        <div class="session-card-info">
-                            <strong>Pagamento</strong>
-                            <p><span class="status-badge ${statusClass}">${s.status_pagamento}</span></p>
-                        </div>
+                        ${pagamentoHTML}
                         <div class="session-card-actions">
                             <a href="#" class="btn btn-secondary btn-sm view-session-btn">Ver Detalhes</a>
                         </div>
@@ -1180,6 +1218,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const statusClass =
         sessao.status_pagamento === "Pago" ? "status-pago" : "status-pendente";
 
+      const pagamentoDetailHTML = sessionPaymentFieldsBlocked
+        ? ""
+        : `<div class="detail-item"><strong>Pagamento</strong><span><span class="status-badge ${statusClass}">${
+            sessao.status_pagamento
+          }</span></span></div>`;
+
       let sessaoHTML = `
             <div class="detail-section">
                 <div class="detail-grid">
@@ -1187,9 +1231,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       sessao.paciente_nome
                     }</span></div>
                     <div class="detail-item"><strong>Data</strong><span>${dataFormatada}</span></div>
-                    <div class="detail-item"><strong>Pagamento</strong><span><span class="status-badge ${statusClass}">${
-        sessao.status_pagamento
-      }</span></span></div>
+                    ${pagamentoDetailHTML}
                 </div>
             </div>
             <div class="detail-section">
@@ -1238,8 +1280,19 @@ document.addEventListener("DOMContentLoaded", () => {
         form.elements["data_sessao"].value = dataISO;
         form.elements["duracao_minutos"].value = sessao.duracao_minutos;
         form.elements["tipo_sessao"].value = sessao.tipo_sessao;
-        form.elements["valor_sessao"].value = sessao.valor_sessao;
-        form.elements["status_pagamento"].value = sessao.status_pagamento;
+        if (!sessionPaymentFieldsBlocked) {
+          if (form.elements["valor_sessao"]) {
+            form.elements["valor_sessao"].value = sessao.valor_sessao;
+          }
+          if (form.elements["status_pagamento"]) {
+            form.elements["status_pagamento"].value = sessao.status_pagamento;
+          }
+        } else {
+          if (form.elements["valor_sessao"]) form.elements["valor_sessao"].value = "";
+          if (form.elements["status_pagamento"]) {
+            form.elements["status_pagamento"].value = "Pendente";
+          }
+        }
         form.elements["resumo_sessao"].value = sessao.resumo_sessao;
 
         sessionIdInput.value = sessao.id;
@@ -1526,6 +1579,9 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavigationForRole(userRole);
   if (financeBlocked) {
     hideFinanceUI();
+  }
+  if (sessionPaymentFieldsBlocked) {
+    hideSessionPaymentFieldsUI();
   }
   if (userRole === "paciente") {
     activateSection("agenda-section", "agenda-link");
@@ -1929,9 +1985,12 @@ document.addEventListener("DOMContentLoaded", () => {
         duracao_minutos: formData.get("duracao_minutos"),
         tipo_sessao: formData.get("tipo_sessao"),
         resumo_sessao: formData.get("resumo_sessao"),
-        valor_sessao: formData.get("valor_sessao"),
-        status_pagamento: formData.get("status_pagamento"),
       };
+
+      if (!sessionPaymentFieldsBlocked) {
+        sessionData.valor_sessao = formData.get("valor_sessao");
+        sessionData.status_pagamento = formData.get("status_pagamento");
+      }
       const method = sessaoId ? "PUT" : "POST";
       const url = sessaoId
         ? `${API_BASE}/api/sessoes/${sessaoId}`
