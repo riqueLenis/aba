@@ -2369,34 +2369,62 @@ app.delete("/api/aba/planos/:id", verificarToken, async (req, res) => {
 // Pastas Curriculares (por paciente) + anexos de Programas/Alvos
 // ============================
 
+async function ensureAbaPastaAlvosProgramColumn() {
+  try {
+    await pool.query(
+      "ALTER TABLE aba_pasta_alvos ADD COLUMN IF NOT EXISTS programa_id INTEGER"
+    );
+  } catch (e) {
+    console.warn(
+      "Aviso: não foi possível garantir coluna programa_id em aba_pasta_alvos.",
+      e?.message || e
+    );
+  }
+}
+
+ensureAbaPastaAlvosProgramColumn();
+
 app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
   const { id: userId, role } = req.terapeuta;
   const { pacienteId } = req.query;
 
-  let queryText = `
-    SELECT
-      f.id,
-      f.paciente_id,
-      f.nome,
-      f.criado_em,
-      f.atualizado_em,
-      COALESCE(
-        JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT('id', ap.id, 'nome', ap.nome))
-        FILTER (WHERE ap.id IS NOT NULL),
-        '[]'::jsonb
-      ) AS programas,
-      COALESCE(
-        JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT('id', a.id, 'label', a.label))
-        FILTER (WHERE a.id IS NOT NULL),
-        '[]'::jsonb
-      ) AS alvos
-    FROM aba_pastas_curriculares f
-    JOIN pacientes p ON p.id = f.paciente_id
-    LEFT JOIN aba_pasta_programas fp ON fp.pasta_id = f.id
-    LEFT JOIN aba_programas ap ON ap.id = fp.programa_id
-    LEFT JOIN aba_pasta_alvos fa ON fa.pasta_id = f.id
-    LEFT JOIN aba_alvos a ON a.id = fa.alvo_id
-  `;
+  const buildQuery = ({ includeProgramIdInTargets }) => {
+    return `
+      SELECT
+        f.id,
+        f.paciente_id,
+        f.nome,
+        f.criado_em,
+        f.atualizado_em,
+        COALESCE(
+          JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT('id', ap.id, 'nome', ap.nome))
+          FILTER (WHERE ap.id IS NOT NULL),
+          '[]'::jsonb
+        ) AS programas,
+        COALESCE(
+          JSONB_AGG(
+            DISTINCT (
+              CASE
+                WHEN a.id IS NULL THEN NULL
+                ELSE JSONB_BUILD_OBJECT(
+                  'id', a.id,
+                  'label', a.label${includeProgramIdInTargets ? ", 'programa_id', fa.programa_id" : ""}
+                )
+              END
+            )
+          ) FILTER (WHERE a.id IS NOT NULL),
+          '[]'::jsonb
+        ) AS alvos
+      FROM aba_pastas_curriculares f
+      JOIN pacientes p ON p.id = f.paciente_id
+      LEFT JOIN aba_pasta_programas fp ON fp.pasta_id = f.id
+      LEFT JOIN aba_programas ap ON ap.id = fp.programa_id
+      LEFT JOIN aba_pasta_alvos fa ON fa.pasta_id = f.id
+      LEFT JOIN aba_alvos a ON a.id = fa.alvo_id
+    `;
+  };
+
+  let queryText = buildQuery({ includeProgramIdInTargets: true });
 
   let values = [];
   if (role === "terapeuta" || role === "admin") {
@@ -2431,6 +2459,32 @@ app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
     const result = await pool.query(queryText, values);
     res.status(200).json(result.rows);
   } catch (error) {
+    const msg = String(error?.message || "");
+    const missingProgramColumn =
+      msg.includes("fa.programa_id") ||
+      msg.includes('column "programa_id"') ||
+      msg.includes("does not exist");
+
+    if (missingProgramColumn) {
+      try {
+        let legacyQuery = buildQuery({ includeProgramIdInTargets: false });
+
+        // reaplica os mesmos filtros/where/and construídos acima
+        const whereIndex = queryText.indexOf(" WHERE ");
+        if (whereIndex !== -1) {
+          const legacyTail = queryText.slice(whereIndex);
+          legacyQuery += legacyTail;
+        } else {
+          legacyQuery += " GROUP BY f.id ORDER BY f.criado_em DESC;";
+        }
+
+        const legacyResult = await pool.query(legacyQuery, values);
+        return res.status(200).json(legacyResult.rows);
+      } catch (legacyErr) {
+        console.error("Erro ao listar pastas curriculares (fallback):", legacyErr);
+      }
+    }
+
     console.error("Erro ao listar pastas curriculares:", error);
     res.status(500).json({ error: "Erro interno do servidor." });
   }
@@ -2517,7 +2571,7 @@ app.post(
   [verificarToken, verificarAcessoPastaCurricular],
   async (req, res) => {
     const { id } = req.params;
-    const { alvoId } = req.body;
+    const { alvoId, programId } = req.body;
     if (!alvoId) {
       return res.status(400).json({ error: "alvoId é obrigatório." });
     }
@@ -2531,14 +2585,65 @@ app.post(
         return res.status(404).json({ error: "Alvo não encontrado." });
       }
 
-      await pool.query(
-        `
-          INSERT INTO aba_pasta_alvos (pasta_id, alvo_id)
-          VALUES ($1, $2)
-          ON CONFLICT DO NOTHING;
-        `,
-        [id, alvoId]
-      );
+      const folder = req.pastaCurricular;
+      if (programId) {
+        const programRes = await pool.query(
+          "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
+          [programId]
+        );
+        if (!programRes.rows.length) {
+          return res.status(404).json({ error: "Programa não encontrado." });
+        }
+        if (
+          Number(programRes.rows[0].paciente_id) !== Number(folder.paciente_id)
+        ) {
+          return res.status(400).json({
+            error: "O programa deve pertencer ao mesmo paciente da pasta.",
+          });
+        }
+        const attachedRes = await pool.query(
+          "SELECT 1 FROM aba_pasta_programas WHERE pasta_id = $1 AND programa_id = $2",
+          [id, programId]
+        );
+        if (!attachedRes.rowCount) {
+          return res.status(400).json({
+            error: "Anexe o programa à pasta antes de vincular alvos a ele.",
+          });
+        }
+      }
+
+      try {
+        if (programId) {
+          await pool.query(
+            `
+              INSERT INTO aba_pasta_alvos (pasta_id, alvo_id, programa_id)
+              VALUES ($1, $2, $3)
+              ON CONFLICT (pasta_id, alvo_id)
+              DO UPDATE SET programa_id = EXCLUDED.programa_id;
+            `,
+            [id, alvoId, programId]
+          );
+        } else {
+          await pool.query(
+            `
+              INSERT INTO aba_pasta_alvos (pasta_id, alvo_id)
+              VALUES ($1, $2)
+              ON CONFLICT DO NOTHING;
+            `,
+            [id, alvoId]
+          );
+        }
+      } catch (insertErr) {
+        // compatibilidade: bancos antigos sem coluna programa_id
+        await pool.query(
+          `
+            INSERT INTO aba_pasta_alvos (pasta_id, alvo_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING;
+          `,
+          [id, alvoId]
+        );
+      }
 
       await pool.query(
         "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",

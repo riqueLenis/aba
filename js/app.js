@@ -525,6 +525,7 @@ const Views = {
 
     let selectedPatientId = patients[0]?.id || "";
     let folders = [];
+    const selectedProgramByFolder = {};
 
     const patientSel = Select(
       patients.map((p) => [p.id, p.name]),
@@ -623,7 +624,7 @@ const Views = {
       }
     };
 
-    const attachTarget = async (folderId, alvoId) => {
+    const attachTarget = async (folderId, alvoId, programId) => {
       if (!alvoId) return toast("Selecione o alvo");
       try {
         const headers = getAuthHeaders();
@@ -632,7 +633,7 @@ const Views = {
           {
             method: "POST",
             headers,
-            body: JSON.stringify({ alvoId }),
+            body: JSON.stringify({ alvoId, programId }),
           }
         );
         if (!res.ok) {
@@ -697,6 +698,9 @@ const Views = {
 
       const targetOptions = (targets || []).map((t) => [t.id, t.label]);
 
+      const getAlvoProgramId = (a) =>
+        a?.programa_id ?? a?.programaId ?? a?.programId ?? a?.program_id ?? null;
+
       folders.forEach((f) => {
         const programSel = Select(
           patientPrograms,
@@ -713,6 +717,77 @@ const Views = {
 
         const progList = Array.isArray(f.programas) ? f.programas : [];
         const alvoList = Array.isArray(f.alvos) ? f.alvos : [];
+
+        const folderId = String(f.id);
+        const normalizedPrograms = progList
+          .filter((p) => p && p.id)
+          .map((p) => ({ id: String(p.id), nome: p.nome || "Programa" }));
+
+        const hasUnlinkedTargets = alvoList.some((a) => getAlvoProgramId(a) == null);
+        const hasTargetProgramInfo = alvoList.some(
+          (a) => getAlvoProgramId(a) != null
+        );
+
+        const currentSelectedProgram =
+          selectedProgramByFolder[folderId] ??
+          (normalizedPrograms[0]?.id || (hasUnlinkedTargets ? "__unlinked__" : ""));
+
+        // Se o programa selecionado não existe mais na pasta, reseta.
+        if (
+          currentSelectedProgram &&
+          currentSelectedProgram !== "__unlinked__" &&
+          !normalizedPrograms.some((p) => p.id === currentSelectedProgram)
+        ) {
+          selectedProgramByFolder[folderId] =
+            normalizedPrograms[0]?.id || (hasUnlinkedTargets ? "__unlinked__" : "");
+        } else if (selectedProgramByFolder[folderId] == null) {
+          selectedProgramByFolder[folderId] = currentSelectedProgram;
+        }
+
+        const selectedProgId = selectedProgramByFolder[folderId] || "";
+        const filteredTargets = (() => {
+          if (!selectedProgId) return [];
+          if (selectedProgId === "__unlinked__") {
+            return alvoList.filter((a) => getAlvoProgramId(a) == null);
+          }
+          return alvoList.filter((a) => String(getAlvoProgramId(a)) === String(selectedProgId));
+        })();
+
+        const programTabs = (() => {
+          if (!normalizedPrograms.length && !hasUnlinkedTargets) return "";
+
+          const items = [
+            ...normalizedPrograms.map((p) => ({
+              id: p.id,
+              label: p.nome,
+            })),
+          ];
+          if (hasUnlinkedTargets) items.push({ id: "__unlinked__", label: "Sem programa" });
+
+          return el(
+            "div",
+            { class: "row mt-2 wrap" },
+            items.map((it) =>
+              el(
+                "button",
+                {
+                  class:
+                    "btn secondary" +
+                    (String(selectedProgId) === String(it.id) ? "" : ""),
+                  style:
+                    String(selectedProgId) === String(it.id)
+                      ? "border-color: var(--primary);"
+                      : "",
+                  onclick: () => {
+                    selectedProgramByFolder[folderId] = it.id;
+                    renderFolders();
+                  },
+                },
+                it.label
+              )
+            )
+          );
+        })();
 
         listWrap.appendChild(
           el("div", { class: "card" }, [
@@ -750,25 +825,56 @@ const Views = {
                     "Nenhum programa anexado."
                   ),
 
+              normalizedPrograms.length || hasUnlinkedTargets
+                ? el(
+                    "div",
+                    { class: "small mt-2" },
+                    "Clique em um programa para ver apenas os alvos vinculados."
+                  )
+                : "",
+
+              programTabs,
+
               el("div", { class: "row mt-3 wrap" }, [
                 Field("Anexar alvo", targetSel),
                 el(
                   "button",
                   {
                     class: "btn secondary",
-                    onclick: () => attachTarget(f.id, targetSel.value),
+                    onclick: () => {
+                      if (!targetSel.value) return toast("Selecione o alvo");
+                      if (!normalizedPrograms.length)
+                        return toast("Anexe um programa antes de vincular alvos");
+                      if (!selectedProgId || selectedProgId === "__unlinked__")
+                        return toast("Selecione um programa para vincular o alvo");
+                      attachTarget(f.id, targetSel.value, selectedProgId);
+                    },
                   },
                   "Anexar"
                 ),
               ]),
 
-              alvoList.length
-                ? el(
-                    "ul",
-                    { class: "list mt-2" },
-                    alvoList.map((a) => el("li", {}, a.label || "Alvo"))
-                  )
-                : el("div", { class: "small mt-2" }, "Nenhum alvo anexado."),
+              !alvoList.length
+                ? el("div", { class: "small mt-2" }, "Nenhum alvo anexado.")
+                : !selectedProgId
+                  ? el(
+                      "div",
+                      { class: "small mt-2" },
+                      "Selecione um programa para filtrar os alvos."
+                    )
+                  : filteredTargets.length
+                    ? el(
+                        "ul",
+                        { class: "list mt-2" },
+                        filteredTargets.map((a) => el("li", {}, a.label || "Alvo"))
+                      )
+                    : el(
+                        "div",
+                        { class: "small mt-2" },
+                        hasTargetProgramInfo
+                          ? "Nenhum alvo vinculado a este programa."
+                          : "Seu servidor ainda não informa o vínculo alvo↔programa; exibindo/registrando vínculo quando disponível."
+                      ),
             ]),
           ])
         );
