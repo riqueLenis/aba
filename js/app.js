@@ -624,6 +624,40 @@ const Views = {
       }
     };
 
+    const deleteFolder = async (folder) => {
+      const folderId = folder?.id;
+      const folderName = String(folder?.nome || folder?.name || "").trim();
+      if (!folderId) return;
+
+      const ok = confirm(
+        `Excluir a pasta curricular?\n\n${folderName || "(sem nome)"}`
+      );
+      if (!ok) return;
+
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/aba/pastas-curriculares/${folderId}`,
+          {
+            method: "DELETE",
+            headers,
+          }
+        );
+        if (!res.ok) {
+          console.error(
+            "Erro ao excluir pasta curricular",
+            await res.text().catch(() => "")
+          );
+          return toast("Erro ao excluir pasta");
+        }
+        toast("Pasta excluída");
+        await loadFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao excluir pasta curricular", e);
+        toast("Falha na comunicação com o servidor");
+      }
+    };
+
     const attachTarget = async (folderId, alvoId, programId) => {
       if (!alvoId) return toast("Selecione o alvo");
       try {
@@ -699,7 +733,11 @@ const Views = {
       const targetOptions = (targets || []).map((t) => [t.id, t.label]);
 
       const getAlvoProgramId = (a) =>
-        a?.programa_id ?? a?.programaId ?? a?.programId ?? a?.program_id ?? null;
+        a?.programa_id ??
+        a?.programaId ??
+        a?.programId ??
+        a?.program_id ??
+        null;
 
       folders.forEach((f) => {
         const programSel = Select(
@@ -723,14 +761,17 @@ const Views = {
           .filter((p) => p && p.id)
           .map((p) => ({ id: String(p.id), nome: p.nome || "Programa" }));
 
-        const hasUnlinkedTargets = alvoList.some((a) => getAlvoProgramId(a) == null);
+        const hasUnlinkedTargets = alvoList.some(
+          (a) => getAlvoProgramId(a) == null
+        );
         const hasTargetProgramInfo = alvoList.some(
           (a) => getAlvoProgramId(a) != null
         );
 
         const currentSelectedProgram =
           selectedProgramByFolder[folderId] ??
-          (normalizedPrograms[0]?.id || (hasUnlinkedTargets ? "__unlinked__" : ""));
+          (normalizedPrograms[0]?.id ||
+            (hasUnlinkedTargets ? "__unlinked__" : ""));
 
         // Se o programa selecionado não existe mais na pasta, reseta.
         if (
@@ -739,7 +780,8 @@ const Views = {
           !normalizedPrograms.some((p) => p.id === currentSelectedProgram)
         ) {
           selectedProgramByFolder[folderId] =
-            normalizedPrograms[0]?.id || (hasUnlinkedTargets ? "__unlinked__" : "");
+            normalizedPrograms[0]?.id ||
+            (hasUnlinkedTargets ? "__unlinked__" : "");
         } else if (selectedProgramByFolder[folderId] == null) {
           selectedProgramByFolder[folderId] = currentSelectedProgram;
         }
@@ -750,7 +792,9 @@ const Views = {
           if (selectedProgId === "__unlinked__") {
             return alvoList.filter((a) => getAlvoProgramId(a) == null);
           }
-          return alvoList.filter((a) => String(getAlvoProgramId(a)) === String(selectedProgId));
+          return alvoList.filter(
+            (a) => String(getAlvoProgramId(a)) === String(selectedProgId)
+          );
         })();
 
         const programTabs = (() => {
@@ -762,7 +806,8 @@ const Views = {
               label: p.nome,
             })),
           ];
-          if (hasUnlinkedTargets) items.push({ id: "__unlinked__", label: "Sem programa" });
+          if (hasUnlinkedTargets)
+            items.push({ id: "__unlinked__", label: "Sem programa" });
 
           return el(
             "div",
@@ -796,8 +841,26 @@ const Views = {
                 el("div", { class: "title" }, f.nome || "Pasta"),
                 el(
                   "div",
-                  { class: "small" },
-                  f.criado_em ? new Date(f.criado_em).toLocaleDateString() : ""
+                  { class: "row", style: "gap:10px; align-items:center;" },
+                  [
+                    el(
+                      "div",
+                      { class: "small" },
+                      f.criado_em
+                        ? new Date(f.criado_em).toLocaleDateString()
+                        : ""
+                    ),
+                    el(
+                      "button",
+                      {
+                        class: "btn danger",
+                        style: "padding:6px 10px;",
+                        onclick: () => deleteFolder(f),
+                        title: "Excluir pasta",
+                      },
+                      "Excluir"
+                    ),
+                  ]
                 ),
               ]),
 
@@ -844,9 +907,13 @@ const Views = {
                     onclick: () => {
                       if (!targetSel.value) return toast("Selecione o alvo");
                       if (!normalizedPrograms.length)
-                        return toast("Anexe um programa antes de vincular alvos");
+                        return toast(
+                          "Anexe um programa antes de vincular alvos"
+                        );
                       if (!selectedProgId || selectedProgId === "__unlinked__")
-                        return toast("Selecione um programa para vincular o alvo");
+                        return toast(
+                          "Selecione um programa para vincular o alvo"
+                        );
                       attachTarget(f.id, targetSel.value, selectedProgId);
                     },
                   },
@@ -857,24 +924,24 @@ const Views = {
               !alvoList.length
                 ? el("div", { class: "small mt-2" }, "Nenhum alvo anexado.")
                 : !selectedProgId
-                  ? el(
-                      "div",
-                      { class: "small mt-2" },
-                      "Selecione um programa para filtrar os alvos."
-                    )
-                  : filteredTargets.length
-                    ? el(
-                        "ul",
-                        { class: "list mt-2" },
-                        filteredTargets.map((a) => el("li", {}, a.label || "Alvo"))
-                      )
-                    : el(
-                        "div",
-                        { class: "small mt-2" },
-                        hasTargetProgramInfo
-                          ? "Nenhum alvo vinculado a este programa."
-                          : "Seu servidor ainda não informa o vínculo alvo↔programa; exibindo/registrando vínculo quando disponível."
-                      ),
+                ? el(
+                    "div",
+                    { class: "small mt-2" },
+                    "Selecione um programa para filtrar os alvos."
+                  )
+                : filteredTargets.length
+                ? el(
+                    "ul",
+                    { class: "list mt-2" },
+                    filteredTargets.map((a) => el("li", {}, a.label || "Alvo"))
+                  )
+                : el(
+                    "div",
+                    { class: "small mt-2" },
+                    hasTargetProgramInfo
+                      ? "Nenhum alvo vinculado a este programa."
+                      : "Seu servidor ainda não informa o vínculo alvo↔programa; exibindo/registrando vínculo quando disponível."
+                  ),
             ]),
           ])
         );
@@ -1461,7 +1528,9 @@ const Views = {
             {
               class: "btn secondary",
               onclick: () => {
-                localTargets.forEach((t) => selectedTargetIds.add(String(t.id)));
+                localTargets.forEach((t) =>
+                  selectedTargetIds.add(String(t.id))
+                );
                 render();
                 syncTargetText();
               },
@@ -1507,12 +1576,16 @@ const Views = {
         };
 
         const render = () => {
-          const q = String(search.value || "").trim().toLowerCase();
+          const q = String(search.value || "")
+            .trim()
+            .toLowerCase();
           list.innerHTML = "";
 
           const items = q
             ? localTargets.filter((t) =>
-                String(t.label || "").toLowerCase().includes(q)
+                String(t.label || "")
+                  .toLowerCase()
+                  .includes(q)
               )
             : localTargets;
 
@@ -1803,7 +1876,9 @@ const Views = {
                   class: "btn danger",
                   onclick: async () => {
                     const ok = confirm(
-                      `Excluir este programa?\n\n${String(program.name || "").trim() || "(sem nome)"}`
+                      `Excluir este programa?\n\n${
+                        String(program.name || "").trim() || "(sem nome)"
+                      }`
                     );
                     if (!ok) return;
 

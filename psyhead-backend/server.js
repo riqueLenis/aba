@@ -450,11 +450,9 @@ app.post(
       tipo_login !== "terapeuta" &&
       tipo_login !== "paciente"
     ) {
-      return res
-        .status(400)
-        .json({
-          error: 'O tipo de login deve ser "admin", "terapeuta" ou "paciente".',
-        });
+      return res.status(400).json({
+        error: 'O tipo de login deve ser "admin", "terapeuta" ou "paciente".',
+      });
     }
 
     const client = await pool.connect();
@@ -1048,11 +1046,9 @@ app.put(
 
     // Pelo menos um deles tem que ser enviado
     if (!terapeuta_id && !usuario_id) {
-      return res
-        .status(400)
-        .json({
-          error: "Pelo menos um ID (terapeuta ou usuário) é obrigatório.",
-        });
+      return res.status(400).json({
+        error: "Pelo menos um ID (terapeuta ou usuário) é obrigatório.",
+      });
     }
 
     try {
@@ -1089,11 +1085,9 @@ app.put(
       console.error("Erro ao atualizar paciente:", error);
       // Erro se tentar vincular um login que já está em uso
       if (error.code === "23505") {
-        return res
-          .status(409)
-          .json({
-            error: "Este login de paciente já está vinculado a outro perfil.",
-          });
+        return res.status(409).json({
+          error: "Este login de paciente já está vinculado a outro perfil.",
+        });
       }
       res.status(500).json({ error: "Erro interno do servidor." });
     }
@@ -1183,9 +1177,13 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
       RETURNING *;
     `;
 
-    const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(req.terapeuta);
+    const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(
+      req.terapeuta
+    );
     const valor_sessao = paymentFieldsBlocked ? null : rawValorSessao;
-    const status_pagamento = paymentFieldsBlocked ? "Pendente" : rawStatusPagamento;
+    const status_pagamento = paymentFieldsBlocked
+      ? "Pendente"
+      : rawStatusPagamento;
 
     const values = [
       paciente_id,
@@ -1234,7 +1232,9 @@ app.get(
           error: "Sessão não encontrada.",
         });
       }
-      res.status(200).json(sanitizeSessaoForPaymentPrivacy(result.rows[0], req.terapeuta));
+      res
+        .status(200)
+        .json(sanitizeSessaoForPaymentPrivacy(result.rows[0], req.terapeuta));
     } catch (error) {
       console.error("Erro ao buscar detalhes da sessão:", error);
       res.status(500).json({
@@ -1266,7 +1266,9 @@ app.put(
     }
 
     try {
-      const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(req.terapeuta);
+      const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(
+        req.terapeuta
+      );
 
       let queryText;
       let values;
@@ -1280,13 +1282,7 @@ app.put(
         WHERE id = $5
         RETURNING *;
       `;
-        values = [
-          data_sessao,
-          duracao_minutos,
-          tipo_sessao,
-          resumo_sessao,
-          id,
-        ];
+        values = [data_sessao, duracao_minutos, tipo_sessao, resumo_sessao, id];
       } else {
         queryText = `
         UPDATE sessoes SET
@@ -1367,7 +1363,11 @@ app.get(
 
       res
         .status(200)
-        .json(result.rows.map((r) => sanitizeSessaoForPaymentPrivacy(r, req.terapeuta)));
+        .json(
+          result.rows.map((r) =>
+            sanitizeSessaoForPaymentPrivacy(r, req.terapeuta)
+          )
+        );
     } catch (error) {
       console.error("Erro ao buscar sessões do paciente:", error);
       res.status(500).json({
@@ -2408,7 +2408,11 @@ app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
                 WHEN a.id IS NULL THEN NULL
                 ELSE JSONB_BUILD_OBJECT(
                   'id', a.id,
-                  'label', a.label${includeProgramIdInTargets ? ", 'programa_id', fa.programa_id" : ""}
+                  'label', a.label${
+                    includeProgramIdInTargets
+                      ? ", 'programa_id', fa.programa_id"
+                      : ""
+                  }
                 )
               END
             )
@@ -2481,7 +2485,10 @@ app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
         const legacyResult = await pool.query(legacyQuery, values);
         return res.status(200).json(legacyResult.rows);
       } catch (legacyErr) {
-        console.error("Erro ao listar pastas curriculares (fallback):", legacyErr);
+        console.error(
+          "Erro ao listar pastas curriculares (fallback):",
+          legacyErr
+        );
       }
     }
 
@@ -2516,6 +2523,40 @@ app.post("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
     res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
+
+app.delete(
+  "/api/aba/pastas-curriculares/:id",
+  [verificarToken, verificarAcessoPastaCurricular],
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      await pool.query("BEGIN");
+
+      // remove vínculos antes de apagar a pasta (compatível com bancos sem ON DELETE CASCADE)
+      await pool.query("DELETE FROM aba_pasta_programas WHERE pasta_id = $1", [
+        id,
+      ]);
+      await pool.query("DELETE FROM aba_pasta_alvos WHERE pasta_id = $1", [id]);
+
+      const del = await pool.query(
+        "DELETE FROM aba_pastas_curriculares WHERE id = $1 RETURNING id",
+        [id]
+      );
+      if (!del.rowCount) {
+        await pool.query("ROLLBACK");
+        return res.status(404).json({ error: "Pasta não encontrada." });
+      }
+
+      await pool.query("COMMIT");
+      res.status(200).json({ message: "Pasta excluída." });
+    } catch (error) {
+      await pool.query("ROLLBACK");
+      console.error("Erro ao excluir pasta curricular:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  }
+);
 
 app.post(
   "/api/aba/pastas-curriculares/:id/programas",
