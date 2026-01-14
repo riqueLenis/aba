@@ -1413,25 +1413,16 @@ const Views = {
         "Selecione um alvo..."
       );
 
-      // Ajuste: permitir selecionar vários alvos no mesmo programa (sem sobrecarregar o formulário)
-      // O campo "Comportamento Alvo" passa a representar a lista de alvos selecionados (um por linha).
-      const targetsMultiSel = (() => {
-        const size = Math.min(8, Math.max(4, targets.length));
-        const s = el(
-          "select",
-          { class: "select", multiple: "multiple", size: String(size) },
-          targets.map((t) => el("option", { value: String(t.id) }, t.label))
-        );
-        const onChange = () => {
-          const selectedLabels = Array.from(s.selectedOptions).map(
-            (opt) => opt.textContent
-          );
-          target.value = selectedLabels.join("\n");
-        };
-        s.addEventListener("change", onChange);
-        s.__syncTargetsText = onChange;
-        return s;
-      })();
+      const target = el("textarea", {
+        class: "textarea",
+        value: program?.targetBehavior || "",
+        placeholder: "Alvos selecionados (um por linha)",
+        rows: 3,
+        readOnly: true,
+      });
+
+      let extraTargetLabels = [];
+      const selectedTargetIds = new Set();
 
       // Se estiver editando, tenta pré-selecionar alvos com base no texto salvo.
       if (program?.targetBehavior) {
@@ -1444,16 +1435,157 @@ const Views = {
           const byLabel = new Map(
             targets.map((t) => [String(t.label), String(t.id)])
           );
-          const selectedIds = new Set(
-            tokens
-              .map((t) => byLabel.get(t))
-              .filter((id) => id !== undefined && id !== null)
-          );
-          Array.from(targetsMultiSel.options).forEach((opt) => {
-            opt.selected = selectedIds.has(String(opt.value));
-          });
+          const ids = tokens
+            .map((t) => byLabel.get(t))
+            .filter((id) => id !== undefined && id !== null);
+          ids.forEach((id) => selectedTargetIds.add(String(id)));
+          extraTargetLabels = tokens.filter((t) => !byLabel.has(t));
         }
       }
+
+      // Ajuste: seleção de alvos com checkboxes (mais simples que Ctrl/Shift)
+      const targetsChecklist = (() => {
+        let localTargets = (targets || []).map((t) => ({
+          id: String(t.id),
+          label: t.label,
+        }));
+
+        const search = el("input", {
+          class: "input",
+          placeholder: "Filtrar alvos...",
+        });
+
+        const actions = el("div", { class: "row wrap mt-1" }, [
+          el(
+            "button",
+            {
+              class: "btn secondary",
+              onclick: () => {
+                localTargets.forEach((t) => selectedTargetIds.add(String(t.id)));
+                render();
+                syncTargetText();
+              },
+            },
+            "Selecionar todos"
+          ),
+          el(
+            "button",
+            {
+              class: "btn secondary",
+              onclick: () => {
+                selectedTargetIds.clear();
+                extraTargetLabels = [];
+                render();
+                syncTargetText();
+              },
+            },
+            "Limpar seleção"
+          ),
+        ]);
+
+        const count = el("div", { class: "small mt-1" }, "0 selecionado(s)");
+
+        const list = el("div", {
+          class: "card",
+          style:
+            "padding:10px; max-height:240px; overflow:auto; background:#fff; border:1px solid #e5e7eb;",
+        });
+
+        const syncTargetText = () => {
+          const selectedLabels = localTargets
+            .filter((t) => selectedTargetIds.has(String(t.id)))
+            .map((t) => String(t.label || "").trim())
+            .filter(Boolean);
+
+          const extras = (extraTargetLabels || [])
+            .map((x) => String(x || "").trim())
+            .filter(Boolean);
+
+          const finalList = [...selectedLabels, ...extras];
+          target.value = finalList.join("\n");
+          count.textContent = `${finalList.length} selecionado(s)`;
+        };
+
+        const render = () => {
+          const q = String(search.value || "").trim().toLowerCase();
+          list.innerHTML = "";
+
+          const items = q
+            ? localTargets.filter((t) =>
+                String(t.label || "").toLowerCase().includes(q)
+              )
+            : localTargets;
+
+          if (!items.length) {
+            list.appendChild(
+              el("div", { class: "small" }, "Nenhum alvo encontrado.")
+            );
+            return;
+          }
+
+          items.forEach((t) => {
+            const id = String(t.id);
+            const checked = selectedTargetIds.has(id);
+            const cb = el("input", {
+              type: "checkbox",
+              checked: checked ? "checked" : null,
+            });
+            cb.addEventListener("change", () => {
+              if (cb.checked) selectedTargetIds.add(id);
+              else selectedTargetIds.delete(id);
+              syncTargetText();
+            });
+
+            const label = el(
+              "label",
+              { class: "row", style: "gap:10px; align-items:center;" },
+              [cb, el("span", {}, t.label || "Alvo")]
+            );
+
+            const row = el("div", { style: "padding:6px 2px;" }, [label]);
+            list.appendChild(row);
+          });
+        };
+
+        search.addEventListener("input", render);
+
+        const setTargets = (arr) => {
+          localTargets = (arr || []).map((t) => ({
+            id: String(t.id),
+            label: t.label,
+          }));
+          render();
+          syncTargetText();
+        };
+
+        const addTarget = (t) => {
+          localTargets.push({ id: String(t.id), label: t.label });
+          render();
+          syncTargetText();
+        };
+
+        const removeTargetsById = (ids) => {
+          const remove = new Set((ids || []).map((x) => String(x)));
+          localTargets = localTargets.filter((t) => !remove.has(String(t.id)));
+          remove.forEach((id) => selectedTargetIds.delete(String(id)));
+          render();
+          syncTargetText();
+        };
+
+        // render inicial
+        render();
+        syncTargetText();
+
+        return {
+          wrap: el("div", {}, [search, actions, count, list]),
+          syncTargetText,
+          setTargets,
+          addTarget,
+          removeTargetsById,
+          getSelected: () =>
+            localTargets.filter((t) => selectedTargetIds.has(String(t.id))),
+        };
+      })();
       const patientSel = Select(
         patients.map((p) => [p.id, p.name]),
         program?.patientId || "",
@@ -1475,12 +1607,6 @@ const Views = {
         program?.category || "communication",
         (v) => (category.value = v)
       );
-      const target = el("textarea", {
-        class: "textarea",
-        value: program?.targetBehavior || "",
-        placeholder: "Descreva o comportamento esperado",
-        rows: 2,
-      });
       const criteria = el("input", {
         class: "input",
         value:
@@ -1560,17 +1686,13 @@ const Views = {
                 ],
               }));
 
-              // Adiciona opção no select atual
-              targetsMultiSel.appendChild(
-                el("option", { value: String(created.id) }, created.label)
-              );
-              Array.from(targetsMultiSel.options).forEach((opt) => {
-                if (String(opt.value) === String(created.id))
-                  opt.selected = true;
+              // Adiciona no checklist e marca como selecionado
+              selectedTargetIds.add(String(created.id));
+              targetsChecklist.addTarget({
+                id: String(created.id),
+                label: created.label,
               });
-              if (typeof targetsMultiSel.__syncTargetsText === "function") {
-                targetsMultiSel.__syncTargetsText();
-              }
+              targetsChecklist.syncTargetText();
               newTargetInput.value = "";
             } catch (e) {
               console.error("ABA+: erro ao salvar alvo", e);
@@ -1586,10 +1708,12 @@ const Views = {
         {
           class: "btn danger mt-1",
           onclick: async () => {
-            const selected = Array.from(targetsMultiSel.selectedOptions).map(
-              (opt) => ({ id: String(opt.value), label: opt.textContent || "" })
-            );
-            if (!selected.length) return toast("Selecione o(s) alvo(s) para excluir");
+            const selected = targetsChecklist.getSelected().map((t) => ({
+              id: String(t.id),
+              label: String(t.label || ""),
+            }));
+            if (!selected.length)
+              return toast("Marque o(s) alvo(s) que deseja excluir");
 
             const names = selected
               .map((s) => String(s.label || "").trim())
@@ -1623,15 +1747,8 @@ const Views = {
                 ),
               }));
 
-              // Remove opções do select atual
-              Array.from(targetsMultiSel.options).forEach((opt) => {
-                if (removedIds.has(String(opt.value))) opt.remove();
-              });
-
-              // Re-sincroniza o textarea de comportamento alvo
-              if (typeof targetsMultiSel.__syncTargetsText === "function") {
-                targetsMultiSel.__syncTargetsText();
-              }
+              targetsChecklist.removeTargetsById(Array.from(removedIds));
+              targetsChecklist.syncTargetText();
 
               toast("Alvo(s) excluído(s)");
             } catch (e) {
@@ -1654,11 +1771,11 @@ const Views = {
         ]),
         el("div", { class: "mt-2" }, [
           el("label", { class: "label" }, "Alvos"),
-          targetsMultiSel,
+          targetsChecklist.wrap,
           el(
             "div",
             { class: "small mt-1" },
-            "Selecione um ou mais alvos (Ctrl/Shift no Windows)."
+            "Marque os alvos desejados (mais simples que Ctrl/Shift)."
           ),
           el("div", { class: "row wrap mt-1" }, [
             newTargetInput,
@@ -1670,7 +1787,7 @@ const Views = {
         Field("Nome do Programa *", name),
         Field("Categoria", category),
         Field("Descrição", description),
-        Field("Comportamento Alvo", target),
+        Field("Alvos selecionados", target),
         Field("Critério Atual", criteria),
         program ? Field("Status", status) : "",
         el("div", { class: "row mt-3" }, [
