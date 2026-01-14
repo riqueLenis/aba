@@ -1928,6 +1928,57 @@ app.post("/api/aba/alvos", verificarToken, async (req, res) => {
   }
 });
 
+app.put("/api/aba/alvos/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { id: userId, role } = req.terapeuta;
+  const { label } = req.body;
+
+  if (!label || !String(label).trim()) {
+    return res.status(400).json({ error: "O texto do alvo é obrigatório." });
+  }
+
+  try {
+    const existing = await pool.query(
+      "SELECT id, terapeuta_id FROM aba_alvos WHERE id = $1",
+      [id]
+    );
+    if (!existing.rows.length) {
+      return res.status(404).json({ error: "Alvo não encontrado." });
+    }
+
+    const ownerId = existing.rows[0].terapeuta_id;
+    if (
+      role !== "admin" &&
+      ownerId != null &&
+      Number(ownerId) !== Number(userId)
+    ) {
+      return res
+        .status(403)
+        .json({ error: "Acesso negado para editar este alvo." });
+    }
+    if (role !== "admin" && ownerId == null) {
+      return res
+        .status(403)
+        .json({ error: "Apenas admin pode editar este alvo." });
+    }
+
+    const result = await pool.query(
+      "UPDATE aba_alvos SET label = $1 WHERE id = $2 RETURNING id, label",
+      [String(label).trim(), id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Alvo não encontrado." });
+    }
+
+    res
+      .status(200)
+      .json({ message: "Alvo atualizado com sucesso.", alvo: result.rows[0] });
+  } catch (error) {
+    console.error("Erro ao atualizar alvo ABA:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
 app.delete("/api/aba/alvos/:id", verificarToken, async (req, res) => {
   const { id } = req.params;
   const { id: userId, role } = req.terapeuta;

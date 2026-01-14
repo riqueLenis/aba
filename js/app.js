@@ -685,6 +685,130 @@ const Views = {
       }
     };
 
+    const editProgramName = async (programId) => {
+      const prog = Store.get().programs.find((p) => String(p.id) === String(programId));
+      if (!prog) return toast("Programa não encontrado no ABA+");
+
+      const name = el("input", {
+        class: "input",
+        value: prog.name || "",
+        placeholder: "Nome do programa",
+      });
+
+      const body = el("div", {}, [
+        Field("Nome do Programa", name),
+        el("div", { class: "row mt-3" }, [
+          el(
+            "button",
+            { class: "btn secondary", onclick: () => Modal.close() },
+            "Cancelar"
+          ),
+          el(
+            "button",
+            {
+              class: "btn",
+              onclick: async () => {
+                if (!name.value.trim()) return toast("Informe o nome");
+                try {
+                  const headers = getAuthHeaders();
+                  const payload = {
+                    patientId: prog.patientId,
+                    name: name.value.trim(),
+                    code: prog.code || "",
+                    description: prog.description || "",
+                    category: prog.category || "communication",
+                    targetBehavior: prog.targetBehavior || "",
+                    currentCriteria: prog.currentCriteria || "",
+                    status: prog.status || "active",
+                  };
+                  const res = await fetch(
+                    `${API_BASE}/api/aba/programas/${prog.id}`,
+                    {
+                      method: "PUT",
+                      headers,
+                      body: JSON.stringify(payload),
+                    }
+                  );
+                  if (!res.ok) {
+                    console.error(
+                      "Erro ao editar programa",
+                      await res.text().catch(() => "")
+                    );
+                    return toast("Erro ao editar programa");
+                  }
+                  await syncFromBackend();
+                  await loadFolders();
+                  Modal.close();
+                  toast("Programa atualizado");
+                } catch (e) {
+                  console.error("ABA+: erro ao editar programa", e);
+                  toast("Falha na comunicação com o servidor");
+                }
+              },
+            },
+            "Salvar"
+          ),
+        ]),
+      ]);
+
+      Modal.open("Editar Programa", body);
+    };
+
+    const editTargetName = async (targetId, currentLabel) => {
+      const label = el("input", {
+        class: "input",
+        value: String(currentLabel || ""),
+        placeholder: "Nome do alvo",
+      });
+
+      const body = el("div", {}, [
+        Field("Nome do Alvo", label),
+        el("div", { class: "row mt-3" }, [
+          el(
+            "button",
+            { class: "btn secondary", onclick: () => Modal.close() },
+            "Cancelar"
+          ),
+          el(
+            "button",
+            {
+              class: "btn",
+              onclick: async () => {
+                if (!label.value.trim()) return toast("Informe o nome");
+                try {
+                  const headers = getAuthHeaders();
+                  const res = await fetch(`${API_BASE}/api/aba/alvos/${targetId}`,
+                    {
+                      method: "PUT",
+                      headers,
+                      body: JSON.stringify({ label: label.value.trim() }),
+                    }
+                  );
+                  if (!res.ok) {
+                    console.error(
+                      "Erro ao editar alvo",
+                      await res.text().catch(() => "")
+                    );
+                    return toast("Erro ao editar alvo");
+                  }
+                  await syncFromBackend();
+                  await loadFolders();
+                  Modal.close();
+                  toast("Alvo atualizado");
+                } catch (e) {
+                  console.error("ABA+: erro ao editar alvo", e);
+                  toast("Falha na comunicação com o servidor");
+                }
+              },
+            },
+            "Salvar"
+          ),
+        ]),
+      ]);
+
+      Modal.open("Editar Alvo", body);
+    };
+
     const renderFolders = () => {
       listWrap.innerHTML = "";
 
@@ -880,7 +1004,30 @@ const Views = {
                 ? el(
                     "ul",
                     { class: "list mt-2" },
-                    progList.map((p) => el("li", {}, p.nome || "Programa"))
+                    progList.map((p) =>
+                      el("li", {}, [
+                        el(
+                          "div",
+                          {
+                            class: "row",
+                            style:
+                              "justify-content:space-between; align-items:center; gap:10px;",
+                          },
+                          [
+                            el("span", {}, p.nome || "Programa"),
+                            el(
+                              "button",
+                              {
+                                class: "btn secondary",
+                                style: "padding:6px 10px;",
+                                onclick: () => editProgramName(p.id),
+                              },
+                              "Editar Programa"
+                            ),
+                          ]
+                        ),
+                      ])
+                    )
                   )
                 : el(
                     "div",
@@ -929,12 +1076,35 @@ const Views = {
                     { class: "small mt-2" },
                     "Selecione um programa para filtrar os alvos."
                   )
-                : filteredTargets.length
-                ? el(
-                    "ul",
-                    { class: "list mt-2" },
-                    filteredTargets.map((a) => el("li", {}, a.label || "Alvo"))
-                  )
+                  : filteredTargets.length
+                    ? el(
+                        "ul",
+                        { class: "list mt-2" },
+                        filteredTargets.map((a) =>
+                          el("li", {}, [
+                            el(
+                              "div",
+                              {
+                                class: "row",
+                                style:
+                                  "justify-content:space-between; align-items:center; gap:10px;",
+                              },
+                              [
+                                el("span", {}, a.label || "Alvo"),
+                                el(
+                                  "button",
+                                  {
+                                    class: "btn secondary",
+                                    style: "padding:6px 10px;",
+                                    onclick: () => editTargetName(a.id, a.label),
+                                  },
+                                  "Editar Alvo"
+                                ),
+                              ]
+                            ),
+                          ])
+                        )
+                      )
                 : el(
                     "div",
                     { class: "small mt-2" },
@@ -1422,7 +1592,7 @@ const Views = {
                 el(
                   "button",
                   { class: "btn secondary", onclick: () => openForm(p) },
-                  "Editar"
+                  "Editar Programa"
                 ),
                 el(
                   "button",
@@ -1517,6 +1687,77 @@ const Views = {
           label: t.label,
         }));
 
+        const editTarget = async (t) => {
+          const input = el("input", {
+            class: "input",
+            value: String(t?.label || ""),
+            placeholder: "Nome do alvo",
+          });
+
+          const body = el("div", {}, [
+            Field("Nome do Alvo", input),
+            el("div", { class: "row mt-3" }, [
+              el(
+                "button",
+                { class: "btn secondary", onclick: () => Modal.close() },
+                "Cancelar"
+              ),
+              el(
+                "button",
+                {
+                  class: "btn",
+                  onclick: async () => {
+                    if (!input.value.trim()) return toast("Informe o nome");
+                    try {
+                      const headers = getAuthHeaders();
+                      const res = await fetch(
+                        `${API_BASE}/api/aba/alvos/${t.id}`,
+                        {
+                          method: "PUT",
+                          headers,
+                          body: JSON.stringify({ label: input.value.trim() }),
+                        }
+                      );
+                      if (!res.ok) {
+                        console.error(
+                          "Erro ao editar alvo ABA",
+                          await res.text().catch(() => "")
+                        );
+                        return toast("Erro ao editar alvo no servidor");
+                      }
+
+                      // atualiza store e lista local
+                      Store.set((s) => ({
+                        ...s,
+                        targets: (s.targets || []).map((x) =>
+                          String(x.id) === String(t.id)
+                            ? { ...x, label: input.value.trim() }
+                            : x
+                        ),
+                      }));
+                      localTargets = localTargets.map((x) =>
+                        String(x.id) === String(t.id)
+                          ? { ...x, label: input.value.trim() }
+                          : x
+                      );
+                      render();
+                      syncTargetText();
+                      Modal.close();
+                      toast("Alvo atualizado");
+                    } catch (e) {
+                      console.error("ABA+: erro ao editar alvo", e);
+                      toast("Falha na comunicação com o servidor");
+                    }
+                  },
+                },
+                "Salvar"
+              ),
+            ]),
+          ]);
+
+          Modal.open("Editar Alvo", body);
+        };
+
         const search = el("input", {
           class: "input",
           placeholder: "Filtrar alvos...",
@@ -1609,13 +1850,26 @@ const Views = {
               syncTargetText();
             });
 
-            const label = el(
-              "label",
-              { class: "row", style: "gap:10px; align-items:center;" },
-              [cb, el("span", {}, t.label || "Alvo")]
+            const label = el("label", { class: "row", style: "gap:10px; align-items:center;" }, [
+              cb,
+              el("span", {}, t.label || "Alvo"),
+            ]);
+
+            const editBtn = el(
+              "button",
+              {
+                class: "btn secondary",
+                style: "margin-left:auto; padding:6px 10px;",
+                onclick: () => editTarget(t),
+              },
+              "Editar Alvo"
             );
 
-            const row = el("div", { style: "padding:6px 2px;" }, [label]);
+            const row = el(
+              "div",
+              { class: "row", style: "padding:6px 2px; align-items:center; gap:10px;" },
+              [label, editBtn]
+            );
             list.appendChild(row);
           });
         };
