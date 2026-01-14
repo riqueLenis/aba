@@ -106,14 +106,17 @@ const loadCustomTemplates = () => {
     const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (!parsed || typeof parsed !== "object") {
-      return { programs: [], targets: [] };
+      return { programs: [], targets: [], programModels: [] };
     }
     return {
       programs: Array.isArray(parsed.programs) ? parsed.programs : [],
       targets: Array.isArray(parsed.targets) ? parsed.targets : [],
+      programModels: Array.isArray(parsed.programModels)
+        ? parsed.programModels
+        : [],
     };
   } catch {
-    return { programs: [], targets: [] };
+    return { programs: [], targets: [], programModels: [] };
   }
 };
 
@@ -122,6 +125,9 @@ const saveCustomTemplates = (data) => {
   const next = {
     programs: Array.isArray(data.programs) ? data.programs : base.programs,
     targets: Array.isArray(data.targets) ? data.targets : base.targets,
+    programModels: Array.isArray(data.programModels)
+      ? data.programModels
+      : base.programModels,
   };
   localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(next));
 };
@@ -1620,6 +1626,10 @@ const Views = {
           t.code,
           `${t.name} - Código: ${t.code}`,
         ]),
+        ...(custom.programModels || []).map((m) => [
+          `model:${m.id}`,
+          `Modelo: ${m.name}${m.code ? ` - Código: ${m.code}` : ""}`,
+        ]),
         ...custom.programs.map((name) => [
           `custom-prog:${name}`,
           `${name} (personalizado)`,
@@ -1634,6 +1644,21 @@ const Views = {
           if (tpl) {
             name.value = tpl.name;
             return;
+          }
+          if (v && v.startsWith("model:")) {
+            const id = v.replace("model:", "");
+            const model = (loadCustomTemplates().programModels || []).find(
+              (m) => String(m.id) === String(id)
+            );
+            if (model) {
+              name.value = model.name || "";
+              description.value = model.description || "";
+              category.value = model.category || "communication";
+              criteria.value =
+                model.currentCriteria || "80% de acertos em 3 sessões consecutivas";
+              applyTargetBehavior(model.targetBehavior || "");
+              return;
+            }
           }
           if (v && v.startsWith("custom-prog:")) {
             const customName = v.replace("custom-prog:", "");
@@ -1913,11 +1938,34 @@ const Views = {
             localTargets.filter((t) => selectedTargetIds.has(String(t.id))),
         };
       })();
+
+      const applyTargetBehavior = (text) => {
+        selectedTargetIds.clear();
+        extraTargetLabels = [];
+
+        const tokens = String(text || "")
+          .split(/\n|,|;|\r/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+
+        if (tokens.length) {
+          const byLabel = new Map(
+            (targets || []).map((t) => [String(t.label), String(t.id)])
+          );
+          const ids = tokens
+            .map((t) => byLabel.get(t))
+            .filter((id) => id !== undefined && id !== null);
+          ids.forEach((id) => selectedTargetIds.add(String(id)));
+          extraTargetLabels = tokens.filter((t) => !byLabel.has(t));
+        }
+
+        targetsChecklist.setTargets(targets || []);
+      };
       const patientSel = Select(
         patients.map((p) => [p.id, p.name]),
         program?.patientId || "",
         (v) => (patientSel.value = v),
-        "Selecione o paciente"
+        "(Opcional) Selecione o paciente"
       );
       const name = el("input", {
         class: "input",
@@ -2110,7 +2158,12 @@ const Views = {
             deleteSelectedTargetsBtn,
           ]),
         ]),
-        Field("Paciente *", patientSel),
+        Field("Paciente", patientSel),
+        el(
+          "div",
+          { class: "small mt-1" },
+          "Dica: se não selecionar um paciente, o programa será salvo como MODELO reutilizável."
+        ),
         Field("Nome do Programa *", name),
         Field("Categoria", category),
         Field("Descrição", description),
@@ -2169,12 +2222,40 @@ const Views = {
             {
               class: "btn",
               onclick: async () => {
-                if (!patientSel.value) return toast("Selecione o paciente");
+                if (program && program.id && !patientSel.value)
+                  return toast("Selecione o paciente");
                 if (!name.value.trim())
                   return toast("Informe o nome do programa");
                 const selectedTemplate = PROGRAM_TEMPLATES.find(
                   (t) => t.code === templateSel.value
                 );
+
+                // Se não selecionou paciente e é um novo registro, salva como MODELO reutilizável.
+                if (!patientSel.value && !(program && program.id)) {
+                  const data = loadCustomTemplates();
+                  const id =
+                    crypto?.randomUUID
+                      ? crypto.randomUUID()
+                      : Math.random().toString(36).slice(2);
+                  const model = {
+                    id,
+                    name: name.value.trim(),
+                    code: selectedTemplate?.code || "",
+                    description: description.value,
+                    category: category.value,
+                    targetBehavior: target.value,
+                    currentCriteria: criteria.value,
+                    createdAt: new Date().toISOString(),
+                  };
+                  data.programModels = Array.isArray(data.programModels)
+                    ? data.programModels
+                    : [];
+                  data.programModels.push(model);
+                  saveCustomTemplates(data);
+                  Modal.close();
+                  return toast("Modelo de programa salvo!");
+                }
+
                 const payload = {
                   patientId: patientSel.value,
                   name: name.value,
