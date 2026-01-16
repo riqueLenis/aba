@@ -2029,6 +2029,54 @@ const Views = {
         "Salvar programa na lista"
       );
 
+      const openExistingProgramPicker = () => {
+        const { programs: allPrograms, patients: allPatients } = Store.get();
+        if (!allPrograms.length) return toast("Nenhum programa cadastrado");
+
+        const byPatient = new Map(
+          (allPatients || []).map((p) => [String(p.id), p.name])
+        );
+
+        const options = allPrograms
+          .map((p) => {
+            const patientName = byPatient.get(String(p.patientId)) || "";
+            const label = patientName
+              ? `${p.name} (${patientName})`
+              : `${p.name}`;
+            return [String(p.id), label];
+          })
+          .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+
+        const sel = Select(options, "", (v) => (sel.value = v), "Selecione...");
+        const body = el("div", {}, [
+          Field("Programa", sel),
+          el("div", { class: "row mt-3" }, [
+            el(
+              "button",
+              { class: "btn secondary", onclick: () => openForm() },
+              "Voltar"
+            ),
+            el(
+              "button",
+              {
+                class: "btn",
+                onclick: () => {
+                  if (!sel.value) return toast("Selecione um programa");
+                  const p = allPrograms.find(
+                    (x) => String(x.id) === String(sel.value)
+                  );
+                  if (!p) return toast("Programa não encontrado");
+                  openForm(p);
+                },
+              },
+              "Editar"
+            ),
+          ]),
+        ]);
+
+        Modal.open("Editar Programa", body);
+      };
+
       const newTargetInput = el("input", {
         class: "input",
         placeholder: "Digite um alvo para salvar na lista",
@@ -2143,6 +2191,22 @@ const Views = {
             newProgramInput,
             saveProgramBtn,
           ]),
+          !program
+            ? el(
+                "div",
+                { class: "row wrap mt-1" },
+                [
+                  el(
+                    "button",
+                    {
+                      class: "btn secondary",
+                      onclick: () => openExistingProgramPicker(),
+                    },
+                    "Editar Programa"
+                  ),
+                ]
+              )
+            : "",
         ]),
         el("div", { class: "mt-2" }, [
           el("label", { class: "label" }, "Alvos"),
