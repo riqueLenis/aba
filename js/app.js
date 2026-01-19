@@ -1705,7 +1705,7 @@ const Views = {
             refreshSelectedTemplateActions();
           }
         },
-        "Selecione um programa..."
+        "Selecione um programa....."
       );
 
       const rebuildTemplateSelect = (keepValue) => {
@@ -1716,7 +1716,7 @@ const Views = {
         templateSel.innerHTML = "";
         const opts = buildTemplateOptions();
         templateSel.appendChild(
-          el("option", { value: "" }, "Selecione um programa.....")
+          el("option", { value: "" }, "Selecione um programa...")
         );
         opts.forEach(([v, label]) => {
           templateSel.appendChild(
