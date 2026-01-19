@@ -692,7 +692,9 @@ const Views = {
     };
 
     const editProgramName = async (programId) => {
-      const prog = Store.get().programs.find((p) => String(p.id) === String(programId));
+      const prog = Store.get().programs.find(
+        (p) => String(p.id) === String(programId)
+      );
       if (!prog) return toast("Programa não encontrado no ABA+");
 
       const name = el("input", {
@@ -783,7 +785,8 @@ const Views = {
                 if (!label.value.trim()) return toast("Informe o nome");
                 try {
                   const headers = getAuthHeaders();
-                  const res = await fetch(`${API_BASE}/api/aba/alvos/${targetId}`,
+                  const res = await fetch(
+                    `${API_BASE}/api/aba/alvos/${targetId}`,
                     {
                       method: "PUT",
                       headers,
@@ -1082,35 +1085,35 @@ const Views = {
                     { class: "small mt-2" },
                     "Selecione um programa para filtrar os alvos."
                   )
-                  : filteredTargets.length
-                    ? el(
-                        "ul",
-                        { class: "list mt-2" },
-                        filteredTargets.map((a) =>
-                          el("li", {}, [
+                : filteredTargets.length
+                ? el(
+                    "ul",
+                    { class: "list mt-2" },
+                    filteredTargets.map((a) =>
+                      el("li", {}, [
+                        el(
+                          "div",
+                          {
+                            class: "row",
+                            style:
+                              "justify-content:space-between; align-items:center; gap:10px;",
+                          },
+                          [
+                            el("span", {}, a.label || "Alvo"),
                             el(
-                              "div",
+                              "button",
                               {
-                                class: "row",
-                                style:
-                                  "justify-content:space-between; align-items:center; gap:10px;",
+                                class: "btn secondary",
+                                style: "padding:6px 10px;",
+                                onclick: () => editTargetName(a.id, a.label),
                               },
-                              [
-                                el("span", {}, a.label || "Alvo"),
-                                el(
-                                  "button",
-                                  {
-                                    class: "btn secondary",
-                                    style: "padding:6px 10px;",
-                                    onclick: () => editTargetName(a.id, a.label),
-                                  },
-                                  "Editar Alvo"
-                                ),
-                              ]
+                              "Editar Alvo"
                             ),
-                          ])
-                        )
-                      )
+                          ]
+                        ),
+                      ])
+                    )
+                  )
                 : el(
                     "div",
                     { class: "small mt-2" },
@@ -1571,9 +1574,6 @@ const Views = {
                 { class: "small mt-2" },
                 patient?.name || "Paciente não encontrado"
               ),
-              p.code
-                ? el("div", { class: "small mt-1" }, `Código: ${p.code}`)
-                : "",
               el("div", { class: "mt-2" }, [
                 el(
                   "span",
@@ -1633,19 +1633,33 @@ const Views = {
 
       const buildTemplateOptions = () => {
         const c = loadCustomTemplates();
+        const { programs: allPrograms, patients: allPatients } = Store.get();
+        const byPatient = new Map(
+          (allPatients || []).map((p) => [String(p.id), p.name])
+        );
+
+        const existingPrograms = (allPrograms || [])
+          .filter((p) => p && p.id)
+          .map((p) => {
+            const patientName = byPatient.get(String(p.patientId)) || "";
+            const label = patientName
+              ? `${p.name} (${patientName})`
+              : `${p.name}`;
+            return [`existing:${p.id}`, `Editar: ${label}`];
+          })
+          .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+
         return [
-          ...PROGRAM_TEMPLATES.map((t) => [
-            t.code,
-            `${t.name} - Código: ${t.code}`,
-          ]),
+          ...PROGRAM_TEMPLATES.map((t) => [t.code, `${t.name}`]),
           ...(c.programModels || []).map((m) => [
             `model:${m.id}`,
-            `Modelo: ${m.name}${m.code ? ` - Código: ${m.code}` : ""}`,
+            `Modelo: ${m.name}`,
           ]),
           ...(c.programs || []).map((name) => [
             `custom-prog:${name}`,
             `${name} (personalizado)`,
           ]),
+          ...existingPrograms,
         ];
       };
 
@@ -1654,6 +1668,24 @@ const Views = {
         program?.code || "",
         (v) => {
           const value = String(v || "");
+
+          //selecionou um programa ja cadastrado abre diretamente em modo edição
+          if (value && value.startsWith("existing:")) {
+            const id = value.replace("existing:", "");
+            const p = (Store.get().programs || []).find(
+              (x) => String(x.id) === String(id)
+            );
+            if (!p) {
+              toast("Programa não encontrado");
+              templateSel.value = "";
+              if (typeof refreshSelectedTemplateActions === "function") {
+                refreshSelectedTemplateActions();
+              }
+              return;
+            }
+            openForm(p);
+            return;
+          }
 
           const tpl = PROGRAM_TEMPLATES.find((t) => String(t.code) === value);
           if (tpl) {
@@ -1668,7 +1700,8 @@ const Views = {
               description.value = model.description || "";
               category.value = model.category || "communication";
               criteria.value =
-                model.currentCriteria || "80% de acertos em 3 sessões consecutivas";
+                model.currentCriteria ||
+                "80% de acertos em 3 sessões consecutivas";
               applyTargetBehavior(model.targetBehavior || "");
             }
           } else if (value && value.startsWith("custom-prog:")) {
@@ -1686,12 +1719,18 @@ const Views = {
 
       const rebuildTemplateSelect = (keepValue) => {
         const currentValue =
-          keepValue !== undefined ? String(keepValue) : String(templateSel.value || "");
+          keepValue !== undefined
+            ? String(keepValue)
+            : String(templateSel.value || "");
         templateSel.innerHTML = "";
         const opts = buildTemplateOptions();
-        templateSel.appendChild(el("option", { value: "" }, "Selecione um programa..."));
+        templateSel.appendChild(
+          el("option", { value: "" }, "Selecione um programa...")
+        );
         opts.forEach(([v, label]) => {
-          templateSel.appendChild(el("option", { value: String(v) }, String(label)));
+          templateSel.appendChild(
+            el("option", { value: String(v) }, String(label))
+          );
         });
         templateSel.value = opts.some(([v]) => String(v) === currentValue)
           ? currentValue
@@ -1729,8 +1768,7 @@ const Views = {
 
               const already = list.some(
                 (x, i) =>
-                  i !== idx &&
-                  String(x).toLowerCase() === trimmed.toLowerCase()
+                  i !== idx && String(x).toLowerCase() === trimmed.toLowerCase()
               );
               if (already) return toast("Já existe um programa com esse nome");
 
@@ -1748,11 +1786,18 @@ const Views = {
             if (current.startsWith("model:")) {
               const modelId = current.replace("model:", "");
               const d = loadCustomTemplates();
-              const list = Array.isArray(d.programModels) ? d.programModels : [];
-              const idx = list.findIndex((m) => String(m.id) === String(modelId));
+              const list = Array.isArray(d.programModels)
+                ? d.programModels
+                : [];
+              const idx = list.findIndex(
+                (m) => String(m.id) === String(modelId)
+              );
               if (idx < 0) return toast("Modelo não encontrado");
 
-              const next = prompt("Novo nome do modelo", String(list[idx].name || ""));
+              const next = prompt(
+                "Novo nome do modelo",
+                String(list[idx].name || "")
+              );
               if (next === null) return;
               const trimmed = String(next).trim();
               if (!trimmed) return toast("Informe o nome");
@@ -1783,7 +1828,9 @@ const Views = {
             if (current.startsWith("custom-prog:")) {
               const progName = current.replace("custom-prog:", "");
               const ok = confirm(
-                `Excluir da lista de programas?\n\n${String(progName || "").trim() || "(sem nome)"}`
+                `Excluir da lista de programas?\n\n${
+                  String(progName || "").trim() || "(sem nome)"
+                }`
               );
               if (!ok) return;
 
@@ -1803,14 +1850,20 @@ const Views = {
             if (current.startsWith("model:")) {
               const modelId = current.replace("model:", "");
               const d = loadCustomTemplates();
-              const list = Array.isArray(d.programModels) ? d.programModels : [];
+              const list = Array.isArray(d.programModels)
+                ? d.programModels
+                : [];
               const model = list.find((m) => String(m.id) === String(modelId));
               const ok = confirm(
-                `Excluir modelo de programa?\n\n${String(model?.name || "").trim() || "(sem nome)"}`
+                `Excluir modelo de programa?\n\n${
+                  String(model?.name || "").trim() || "(sem nome)"
+                }`
               );
               if (!ok) return;
 
-              d.programModels = list.filter((m) => String(m.id) !== String(modelId));
+              d.programModels = list.filter(
+                (m) => String(m.id) !== String(modelId)
+              );
               saveCustomTemplates(d);
 
               templateSel.value = "";
@@ -2041,10 +2094,11 @@ const Views = {
               syncTargetText();
             });
 
-            const label = el("label", { class: "row", style: "gap:10px; align-items:center;" }, [
-              cb,
-              el("span", {}, t.label || "Alvo"),
-            ]);
+            const label = el(
+              "label",
+              { class: "row", style: "gap:10px; align-items:center;" },
+              [cb, el("span", {}, t.label || "Alvo")]
+            );
 
             const editBtn = el(
               "button",
@@ -2058,7 +2112,10 @@ const Views = {
 
             const row = el(
               "div",
-              { class: "row", style: "padding:6px 2px; align-items:center; gap:10px;" },
+              {
+                class: "row",
+                style: "padding:6px 2px; align-items:center; gap:10px;",
+              },
               [label, editBtn]
             );
             list.appendChild(row);
@@ -2216,7 +2273,10 @@ const Views = {
           );
 
         const renameCustomProgram = (oldName) => {
-          const next = prompt("Novo nome do programa (lista)", String(oldName || ""));
+          const next = prompt(
+            "Novo nome do programa (lista)",
+            String(oldName || "")
+          );
           if (next === null) return;
           const trimmed = String(next).trim();
           if (!trimmed) return toast("Informe o nome");
@@ -2227,7 +2287,8 @@ const Views = {
           if (idx < 0) return toast("Programa não encontrado na lista");
 
           const already = list.some(
-            (x, i) => i !== idx && String(x).toLowerCase() === trimmed.toLowerCase()
+            (x, i) =>
+              i !== idx && String(x).toLowerCase() === trimmed.toLowerCase()
           );
           if (already) return toast("Já existe um programa com esse nome");
 
@@ -2237,7 +2298,9 @@ const Views = {
 
           const current = String(templateSel.value || "");
           const wasSelected = current === `custom-prog:${oldName}`;
-          rebuildTemplateSelect(wasSelected ? `custom-prog:${trimmed}` : current);
+          rebuildTemplateSelect(
+            wasSelected ? `custom-prog:${trimmed}` : current
+          );
           if (wasSelected) name.value = trimmed;
 
           renderTemplatesManager();
@@ -2246,7 +2309,9 @@ const Views = {
 
         const deleteCustomProgram = (progName) => {
           const ok = confirm(
-            `Excluir da lista de programas?\n\n${String(progName || "").trim() || "(sem nome)"}`
+            `Excluir da lista de programas?\n\n${
+              String(progName || "").trim() || "(sem nome)"
+            }`
           );
           if (!ok) return;
 
@@ -2294,11 +2359,15 @@ const Views = {
           const list = Array.isArray(d.programModels) ? d.programModels : [];
           const model = list.find((m) => String(m.id) === String(modelId));
           const ok = confirm(
-            `Excluir modelo de programa?\n\n${String(model?.name || "").trim() || "(sem nome)"}`
+            `Excluir modelo de programa?\n\n${
+              String(model?.name || "").trim() || "(sem nome)"
+            }`
           );
           if (!ok) return;
 
-          d.programModels = list.filter((m) => String(m.id) !== String(modelId));
+          d.programModels = list.filter(
+            (m) => String(m.id) !== String(modelId)
+          );
           saveCustomTemplates(d);
 
           const current = String(templateSel.value || "");
@@ -2310,7 +2379,9 @@ const Views = {
 
         templatesManagerWrap.innerHTML = "";
         templatesManagerWrap.appendChild(
-          el("div", { class: "small" },
+          el(
+            "div",
+            { class: "small" },
             "Obs: isso gerencia apenas a lista/modelos salvos no navegador (não altera programas já cadastrados no servidor)."
           )
         );
@@ -2421,9 +2492,14 @@ const Views = {
 
         // Em alguns dispositivos o 'change' pode falhar/atrasar; mantém valor selecionado em variável.
         let selectedId = "";
-        const sel = Select(options, "", (v) => {
-          selectedId = String(v || "");
-        }, "Selecione...");
+        const sel = Select(
+          options,
+          "",
+          (v) => {
+            selectedId = String(v || "");
+          },
+          "Selecione..."
+        );
 
         const getSelectedId = () => {
           const v = String(selectedId || sel.value || "").trim();
@@ -2469,7 +2545,9 @@ const Views = {
                     ? `${p.name} (${patientName})`
                     : `${p.name}`;
                   const ok = confirm(
-                    `Excluir este programa?\n\n${String(label || "").trim() || "(sem nome)"}`
+                    `Excluir este programa?\n\n${
+                      String(label || "").trim() || "(sem nome)"
+                    }`
                   );
                   if (!ok) return;
 
@@ -2634,20 +2712,16 @@ const Views = {
           ]),
           templatesManagerWrap,
           !program
-            ? el(
-                "div",
-                { class: "row wrap mt-1" },
-                [
-                  el(
-                    "button",
-                    {
-                      class: "btn secondary",
-                      onclick: () => openExistingProgramPicker(),
-                    },
-                    "Editar Programa"
-                  ),
-                ]
-              )
+            ? el("div", { class: "row wrap mt-1" }, [
+                el(
+                  "button",
+                  {
+                    class: "btn secondary",
+                    onclick: () => openExistingProgramPicker(),
+                  },
+                  "Editar Programa"
+                ),
+              ])
             : "",
         ]),
         el("div", { class: "mt-2" }, [
@@ -2739,10 +2813,9 @@ const Views = {
                 // Se não selecionou paciente e é um novo registro, salva como MODELO reutilizável.
                 if (!patientSel.value && !(program && program.id)) {
                   const data = loadCustomTemplates();
-                  const id =
-                    crypto?.randomUUID
-                      ? crypto.randomUUID()
-                      : Math.random().toString(36).slice(2);
+                  const id = crypto?.randomUUID
+                    ? crypto.randomUUID()
+                    : Math.random().toString(36).slice(2);
                   const model = {
                     id,
                     name: name.value.trim(),
