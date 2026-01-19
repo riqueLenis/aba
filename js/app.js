@@ -1653,13 +1653,13 @@ const Views = {
         buildTemplateOptions(),
         program?.code || "",
         (v) => {
-          const tpl = PROGRAM_TEMPLATES.find((t) => t.code === v);
+          const value = String(v || "");
+
+          const tpl = PROGRAM_TEMPLATES.find((t) => String(t.code) === value);
           if (tpl) {
             name.value = tpl.name;
-            return;
-          }
-          if (v && v.startsWith("model:")) {
-            const id = v.replace("model:", "");
+          } else if (value && value.startsWith("model:")) {
+            const id = value.replace("model:", "");
             const model = (loadCustomTemplates().programModels || []).find(
               (m) => String(m.id) === String(id)
             );
@@ -1670,12 +1670,15 @@ const Views = {
               criteria.value =
                 model.currentCriteria || "80% de acertos em 3 sessões consecutivas";
               applyTargetBehavior(model.targetBehavior || "");
-              return;
             }
-          }
-          if (v && v.startsWith("custom-prog:")) {
-            const customName = v.replace("custom-prog:", "");
+          } else if (value && value.startsWith("custom-prog:")) {
+            const customName = value.replace("custom-prog:", "");
             name.value = customName;
+          }
+
+          // atualizado após criação dos botões (se existirem)
+          if (typeof refreshSelectedTemplateActions === "function") {
+            refreshSelectedTemplateActions();
           }
         },
         "Selecione um programa..."
@@ -1693,6 +1696,142 @@ const Views = {
         templateSel.value = opts.some(([v]) => String(v) === currentValue)
           ? currentValue
           : "";
+
+        if (typeof refreshSelectedTemplateActions === "function") {
+          refreshSelectedTemplateActions();
+        }
+      };
+
+      // Ações rápidas no item selecionado (custom-prog / model)
+      // Declarado como function para poder ser chamado dentro do onChange do Select.
+      function refreshSelectedTemplateActions() {}
+
+      const editSelectedTemplateBtn = el(
+        "button",
+        {
+          class: "btn secondary mt-1",
+          onclick: () => {
+            const current = String(templateSel.value || "");
+            if (current.startsWith("custom-prog:")) {
+              const oldName = current.replace("custom-prog:", "");
+              const next = prompt(
+                "Novo nome do programa (lista)",
+                String(oldName || "")
+              );
+              if (next === null) return;
+              const trimmed = String(next).trim();
+              if (!trimmed) return toast("Informe o nome");
+
+              const d = loadCustomTemplates();
+              const list = Array.isArray(d.programs) ? d.programs : [];
+              const idx = list.findIndex((x) => String(x) === String(oldName));
+              if (idx < 0) return toast("Programa não encontrado na lista");
+
+              const already = list.some(
+                (x, i) =>
+                  i !== idx &&
+                  String(x).toLowerCase() === trimmed.toLowerCase()
+              );
+              if (already) return toast("Já existe um programa com esse nome");
+
+              list[idx] = trimmed;
+              d.programs = list;
+              saveCustomTemplates(d);
+
+              rebuildTemplateSelect(`custom-prog:${trimmed}`);
+              name.value = trimmed;
+              if (templatesManagerOpen) renderTemplatesManager();
+              toast("Programa atualizado na lista");
+              return;
+            }
+
+            if (current.startsWith("model:")) {
+              const modelId = current.replace("model:", "");
+              const d = loadCustomTemplates();
+              const list = Array.isArray(d.programModels) ? d.programModels : [];
+              const idx = list.findIndex((m) => String(m.id) === String(modelId));
+              if (idx < 0) return toast("Modelo não encontrado");
+
+              const next = prompt("Novo nome do modelo", String(list[idx].name || ""));
+              if (next === null) return;
+              const trimmed = String(next).trim();
+              if (!trimmed) return toast("Informe o nome");
+
+              list[idx] = { ...list[idx], name: trimmed };
+              d.programModels = list;
+              saveCustomTemplates(d);
+
+              rebuildTemplateSelect(`model:${modelId}`);
+              name.value = trimmed;
+              if (templatesManagerOpen) renderTemplatesManager();
+              toast("Modelo atualizado");
+              return;
+            }
+
+            toast("Selecione um programa personalizado ou um modelo");
+          },
+        },
+        "Editar selecionado"
+      );
+
+      const deleteSelectedTemplateBtn = el(
+        "button",
+        {
+          class: "btn danger mt-1",
+          onclick: () => {
+            const current = String(templateSel.value || "");
+            if (current.startsWith("custom-prog:")) {
+              const progName = current.replace("custom-prog:", "");
+              const ok = confirm(
+                `Excluir da lista de programas?\n\n${String(progName || "").trim() || "(sem nome)"}`
+              );
+              if (!ok) return;
+
+              const d = loadCustomTemplates();
+              d.programs = (Array.isArray(d.programs) ? d.programs : []).filter(
+                (x) => String(x) !== String(progName)
+              );
+              saveCustomTemplates(d);
+
+              templateSel.value = "";
+              rebuildTemplateSelect();
+              if (templatesManagerOpen) renderTemplatesManager();
+              toast("Removido da lista");
+              return;
+            }
+
+            if (current.startsWith("model:")) {
+              const modelId = current.replace("model:", "");
+              const d = loadCustomTemplates();
+              const list = Array.isArray(d.programModels) ? d.programModels : [];
+              const model = list.find((m) => String(m.id) === String(modelId));
+              const ok = confirm(
+                `Excluir modelo de programa?\n\n${String(model?.name || "").trim() || "(sem nome)"}`
+              );
+              if (!ok) return;
+
+              d.programModels = list.filter((m) => String(m.id) !== String(modelId));
+              saveCustomTemplates(d);
+
+              templateSel.value = "";
+              rebuildTemplateSelect();
+              if (templatesManagerOpen) renderTemplatesManager();
+              toast("Modelo removido");
+              return;
+            }
+
+            toast("Selecione um programa personalizado ou um modelo");
+          },
+        },
+        "Excluir selecionado"
+      );
+
+      refreshSelectedTemplateActions = () => {
+        const current = String(templateSel.value || "");
+        const canManage =
+          current.startsWith("custom-prog:") || current.startsWith("model:");
+        editSelectedTemplateBtn.disabled = !canManage;
+        deleteSelectedTemplateBtn.disabled = !canManage;
       };
 
       const targetsSel = Select(
@@ -2259,6 +2398,9 @@ const Views = {
         if (templatesManagerOpen) renderTemplatesManager();
       };
 
+      // estado inicial dos botões rápidos (depende do que estiver selecionado)
+      refreshSelectedTemplateActions();
+
       const openExistingProgramPicker = () => {
         const { programs: allPrograms, patients: allPatients } = Store.get();
         if (!allPrograms.length) return toast("Nenhum programa cadastrado");
@@ -2277,7 +2419,23 @@ const Views = {
           })
           .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
 
-        const sel = Select(options, "", (v) => (sel.value = v), "Selecione...");
+        // Em alguns dispositivos o 'change' pode falhar/atrasar; mantém valor selecionado em variável.
+        let selectedId = "";
+        const sel = Select(options, "", (v) => {
+          selectedId = String(v || "");
+        }, "Selecione...");
+
+        const getSelectedId = () => {
+          const v = String(selectedId || sel.value || "").trim();
+          return v;
+        };
+
+        const getSelectedProgram = () => {
+          const id = getSelectedId();
+          if (!id) return null;
+          return allPrograms.find((x) => String(x.id) === String(id)) || null;
+        };
+
         const body = el("div", {}, [
           Field("Programa", sel),
           el("div", { class: "row mt-3" }, [
@@ -2291,15 +2449,58 @@ const Views = {
               {
                 class: "btn",
                 onclick: () => {
-                  if (!sel.value) return toast("Selecione um programa");
-                  const p = allPrograms.find(
-                    (x) => String(x.id) === String(sel.value)
-                  );
-                  if (!p) return toast("Programa não encontrado");
+                  const p = getSelectedProgram();
+                  if (!p) return toast("Selecione um programa");
                   openForm(p);
                 },
               },
               "Editar"
+            ),
+            el(
+              "button",
+              {
+                class: "btn danger",
+                onclick: async () => {
+                  const p = getSelectedProgram();
+                  if (!p) return toast("Selecione um programa");
+
+                  const patientName = byPatient.get(String(p.patientId)) || "";
+                  const label = patientName
+                    ? `${p.name} (${patientName})`
+                    : `${p.name}`;
+                  const ok = confirm(
+                    `Excluir este programa?\n\n${String(label || "").trim() || "(sem nome)"}`
+                  );
+                  if (!ok) return;
+
+                  try {
+                    const headers = getAuthHeaders();
+                    const res = await fetch(
+                      `${API_BASE}/api/aba/programas/${p.id}`,
+                      {
+                        method: "DELETE",
+                        headers,
+                      }
+                    );
+                    if (!res.ok) {
+                      console.error(
+                        "Erro ao excluir programa ABA",
+                        await res.text().catch(() => "")
+                      );
+                      return toast("Erro ao excluir programa no servidor");
+                    }
+                    await syncFromBackend();
+                    Modal.close();
+                    toast("Programa excluído");
+                    // Reabre o seletor atualizado (sem empilhar modais)
+                    setTimeout(() => openExistingProgramPicker(), 0);
+                  } catch (e) {
+                    console.error("ABA+: erro ao excluir programa", e);
+                    toast("Falha na comunicação com o servidor");
+                  }
+                },
+              },
+              "Excluir"
             ),
           ]),
         ]);
@@ -2420,6 +2621,8 @@ const Views = {
           el("div", { class: "row wrap mt-1" }, [
             newProgramInput,
             saveProgramBtn,
+            editSelectedTemplateBtn,
+            deleteSelectedTemplateBtn,
             el(
               "button",
               {
