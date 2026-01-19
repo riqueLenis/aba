@@ -1669,21 +1669,12 @@ const Views = {
         (v) => {
           const value = String(v || "");
 
-          //selecionou um programa ja cadastrado abre diretamente em modo edição
+          // Selecionou um programa já cadastrado: a ação fica nos botões
+          // (evita abrir outro modal automaticamente).
           if (value && value.startsWith("existing:")) {
-            const id = value.replace("existing:", "");
-            const p = (Store.get().programs || []).find(
-              (x) => String(x.id) === String(id)
-            );
-            if (!p) {
-              toast("Programa não encontrado");
-              templateSel.value = "";
-              if (typeof refreshSelectedTemplateActions === "function") {
-                refreshSelectedTemplateActions();
-              }
-              return;
+            if (typeof refreshSelectedTemplateActions === "function") {
+              refreshSelectedTemplateActions();
             }
-            openForm(p);
             return;
           }
 
@@ -1751,6 +1742,59 @@ const Views = {
           class: "btn secondary mt-1",
           onclick: () => {
             const current = String(templateSel.value || "");
+            if (current.startsWith("existing:")) {
+              const id = current.replace("existing:", "");
+              const p = (Store.get().programs || []).find(
+                (x) => String(x.id) === String(id)
+              );
+              if (!p) return toast("Programa não encontrado");
+              openForm(p);
+              return;
+            }
+
+            if (current.startsWith("existing:")) {
+              const id = current.replace("existing:", "");
+              const p = (Store.get().programs || []).find(
+                (x) => String(x.id) === String(id)
+              );
+              if (!p) return toast("Programa não encontrado");
+
+              const ok = confirm(
+                `Excluir este programa cadastrado?\n\n${
+                  String(p.name || "").trim() || "(sem nome)"
+                }`
+              );
+              if (!ok) return;
+
+              (async () => {
+                try {
+                  const headers = getAuthHeaders();
+                  const res = await fetch(
+                    `${API_BASE}/api/aba/programas/${p.id}`,
+                    {
+                      method: "DELETE",
+                      headers,
+                    }
+                  );
+                  if (!res.ok) {
+                    console.error(
+                      "Erro ao excluir programa ABA",
+                      await res.text().catch(() => "")
+                    );
+                    return toast("Erro ao excluir programa no servidor");
+                  }
+                  await syncFromBackend();
+                  templateSel.value = "";
+                  rebuildTemplateSelect();
+                  toast("Programa excluído");
+                } catch (e) {
+                  console.error("ABA+: erro ao excluir programa", e);
+                  toast("Falha na comunicação com o servidor");
+                }
+              })();
+              return;
+            }
+
             if (current.startsWith("custom-prog:")) {
               const oldName = current.replace("custom-prog:", "");
               const next = prompt(
@@ -1873,7 +1917,9 @@ const Views = {
               return;
             }
 
-            toast("Selecione um programa personalizado ou um modelo");
+            toast(
+              "Selecione um programa (cadastrado), personalizado ou um modelo"
+            );
           },
         },
         "Excluir selecionado"
@@ -1882,7 +1928,9 @@ const Views = {
       refreshSelectedTemplateActions = () => {
         const current = String(templateSel.value || "");
         const canManage =
-          current.startsWith("custom-prog:") || current.startsWith("model:");
+          current.startsWith("custom-prog:") ||
+          current.startsWith("model:") ||
+          current.startsWith("existing:");
         editSelectedTemplateBtn.disabled = !canManage;
         deleteSelectedTemplateBtn.disabled = !canManage;
       };
