@@ -1633,22 +1633,6 @@ const Views = {
 
       const buildTemplateOptions = () => {
         const c = loadCustomTemplates();
-        const { programs: allPrograms, patients: allPatients } = Store.get();
-        const byPatient = new Map(
-          (allPatients || []).map((p) => [String(p.id), p.name])
-        );
-
-        const existingPrograms = (allPrograms || [])
-          .filter((p) => p && p.id)
-          .map((p) => {
-            const patientName = byPatient.get(String(p.patientId)) || "";
-            const label = patientName
-              ? `${p.name} (${patientName})`
-              : `${p.name}`;
-            return [`existing:${p.id}`, `Editar: ${label}`];
-          })
-          .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-
         return [
           ...PROGRAM_TEMPLATES.map((t) => [t.code, `${t.name}`]),
           ...(c.programModels || []).map((m) => [
@@ -1659,7 +1643,6 @@ const Views = {
             `custom-prog:${name}`,
             `${name} (personalizado)`,
           ]),
-          ...existingPrograms,
         ];
       };
 
@@ -1668,15 +1651,6 @@ const Views = {
         program?.code || "",
         (v) => {
           const value = String(v || "");
-
-          // Selecionou um programa já cadastrado: a ação fica nos botões
-          // (evita abrir outro modal automaticamente).
-          if (value && value.startsWith("existing:")) {
-            if (typeof refreshSelectedTemplateActions === "function") {
-              refreshSelectedTemplateActions();
-            }
-            return;
-          }
 
           const tpl = PROGRAM_TEMPLATES.find((t) => String(t.code) === value);
           if (tpl) {
@@ -1705,7 +1679,7 @@ const Views = {
             refreshSelectedTemplateActions();
           }
         },
-        "Selecione um programa....."
+        "Selecione um programa..."
       );
 
       const rebuildTemplateSelect = (keepValue) => {
@@ -1742,59 +1716,6 @@ const Views = {
           class: "btn secondary mt-1",
           onclick: () => {
             const current = String(templateSel.value || "");
-            if (current.startsWith("existing:")) {
-              const id = current.replace("existing:", "");
-              const p = (Store.get().programs || []).find(
-                (x) => String(x.id) === String(id)
-              );
-              if (!p) return toast("Programa não encontrado");
-              openForm(p);
-              return;
-            }
-
-            if (current.startsWith("existing:")) {
-              const id = current.replace("existing:", "");
-              const p = (Store.get().programs || []).find(
-                (x) => String(x.id) === String(id)
-              );
-              if (!p) return toast("Programa não encontrado");
-
-              const ok = confirm(
-                `Excluir este programa cadastrado?\n\n${
-                  String(p.name || "").trim() || "(sem nome)"
-                }`
-              );
-              if (!ok) return;
-
-              (async () => {
-                try {
-                  const headers = getAuthHeaders();
-                  const res = await fetch(
-                    `${API_BASE}/api/aba/programas/${p.id}`,
-                    {
-                      method: "DELETE",
-                      headers,
-                    }
-                  );
-                  if (!res.ok) {
-                    console.error(
-                      "Erro ao excluir programa ABA",
-                      await res.text().catch(() => "")
-                    );
-                    return toast("Erro ao excluir programa no servidor");
-                  }
-                  await syncFromBackend();
-                  templateSel.value = "";
-                  rebuildTemplateSelect();
-                  toast("Programa excluído");
-                } catch (e) {
-                  console.error("ABA+: erro ao excluir programa", e);
-                  toast("Falha na comunicação com o servidor");
-                }
-              })();
-              return;
-            }
-
             if (current.startsWith("custom-prog:")) {
               const oldName = current.replace("custom-prog:", "");
               const next = prompt(
@@ -1928,11 +1849,186 @@ const Views = {
       refreshSelectedTemplateActions = () => {
         const current = String(templateSel.value || "");
         const canManage =
-          current.startsWith("custom-prog:") ||
-          current.startsWith("model:") ||
-          current.startsWith("existing:");
+          current.startsWith("custom-prog:") || current.startsWith("model:");
         editSelectedTemplateBtn.disabled = !canManage;
         deleteSelectedTemplateBtn.disabled = !canManage;
+      };
+
+      // Programas cadastrados: checklist (checkbox) com seleção única
+      let selectedExistingProgramId = "";
+      const programsChecklist = (() => {
+        const search = el("input", {
+          class: "input",
+          placeholder: "Filtrar programas cadastrados...",
+        });
+
+        const count = el("div", { class: "small mt-1" }, "0 selecionado(s)");
+
+        const list = el("div", {
+          class: "card",
+          style:
+            "padding:10px; max-height:220px; overflow:auto; background:#fff; border:1px solid #e5e7eb;",
+        });
+
+        const getSelected = () => {
+          const id = String(selectedExistingProgramId || "").trim();
+          if (!id) return null;
+          return (
+            (Store.get().programs || []).find(
+              (p) => String(p.id) === String(id)
+            ) || null
+          );
+        };
+
+        const render = () => {
+          const { programs: allPrograms, patients: allPatients } = Store.get();
+          const byPatient = new Map(
+            (allPatients || []).map((p) => [String(p.id), p.name])
+          );
+
+          const q = String(search.value || "").trim().toLowerCase();
+          list.innerHTML = "";
+
+          const items = (allPrograms || [])
+            .filter((p) => p && p.id)
+            .map((p) => {
+              const patientName = byPatient.get(String(p.patientId)) || "";
+              const label = patientName ? `${p.name} (${patientName})` : `${p.name}`;
+              return {
+                id: String(p.id),
+                label: String(label || p.name || "Programa"),
+              };
+            })
+            .filter((p) => (q ? p.label.toLowerCase().includes(q) : true))
+            .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+          count.textContent = selectedExistingProgramId ? "1 selecionado(s)" : "0 selecionado(s)";
+
+          if (!items.length) {
+            list.appendChild(
+              el("div", { class: "small" }, "Nenhum programa encontrado.")
+            );
+            if (typeof refreshSelectedExistingProgramActions === "function") {
+              refreshSelectedExistingProgramActions();
+            }
+            return;
+          }
+
+          items.forEach((p) => {
+            const checked = String(selectedExistingProgramId) === String(p.id);
+            const cb = el("input", {
+              type: "checkbox",
+              checked: checked ? "checked" : null,
+            });
+            cb.addEventListener("change", () => {
+              // seleção única: marcou -> seleciona; desmarcou -> limpa
+              selectedExistingProgramId = cb.checked ? String(p.id) : "";
+              render();
+            });
+
+            const label = el(
+              "label",
+              { class: "row", style: "gap:10px; align-items:center;" },
+              [cb, el("span", {}, p.label)]
+            );
+
+            list.appendChild(
+              el(
+                "div",
+                {
+                  class: "row",
+                  style: "padding:6px 2px; align-items:center; gap:10px;",
+                },
+                [label]
+              )
+            );
+          });
+
+          if (typeof refreshSelectedExistingProgramActions === "function") {
+            refreshSelectedExistingProgramActions();
+          }
+        };
+
+        search.addEventListener("input", render);
+        render();
+
+        return {
+          wrap: el("div", {}, [search, count, list]),
+          render,
+          getSelected,
+          clear: () => {
+            selectedExistingProgramId = "";
+            render();
+          },
+        };
+      })();
+
+      // Botões para programa cadastrado selecionado na checklist
+      function refreshSelectedExistingProgramActions() {}
+
+      const editSelectedExistingProgramBtn = el(
+        "button",
+        {
+          class: "btn secondary mt-1",
+          onclick: () => {
+            const p = programsChecklist.getSelected();
+            if (!p) return toast("Selecione um programa cadastrado");
+            openForm(p);
+          },
+        },
+        "Editar programa selecionado"
+      );
+
+      const deleteSelectedExistingProgramBtn = el(
+        "button",
+        {
+          class: "btn danger mt-1",
+          onclick: async () => {
+            const p = programsChecklist.getSelected();
+            if (!p) return toast("Selecione um programa cadastrado");
+
+            const sessionsCount = (Store.get().sessions || []).filter(
+              (s) => String(s.programId) === String(p.id)
+            ).length;
+
+            const ok = confirm(
+              `Excluir este programa cadastrado?\n\n${
+                String(p.name || "").trim() || "(sem nome)"
+              }${sessionsCount ? `\n\nAtenção: este programa tem ${sessionsCount} sessão(ões).` : ""}`
+            );
+            if (!ok) return;
+
+            try {
+              const headers = getAuthHeaders();
+              const res = await fetch(`${API_BASE}/api/aba/programas/${p.id}`,
+                {
+                  method: "DELETE",
+                  headers,
+                }
+              );
+              if (!res.ok) {
+                console.error(
+                  "Erro ao excluir programa ABA",
+                  await res.text().catch(() => "")
+                );
+                return toast("Erro ao excluir programa no servidor");
+              }
+              await syncFromBackend();
+              programsChecklist.clear();
+              toast("Programa excluído");
+            } catch (e) {
+              console.error("ABA+: erro ao excluir programa", e);
+              toast("Falha na comunicação com o servidor");
+            }
+          },
+        },
+        "Excluir programa selecionado"
+      );
+
+      refreshSelectedExistingProgramActions = () => {
+        const has = !!programsChecklist.getSelected();
+        editSelectedExistingProgramBtn.disabled = !has;
+        deleteSelectedExistingProgramBtn.disabled = !has;
       };
 
       const targetsSel = Select(
@@ -2760,14 +2856,21 @@ const Views = {
           ]),
           templatesManagerWrap,
           !program
-            ? el("div", { class: "row wrap mt-1" }, [
+            ? el("div", { class: "mt-2" }, [
                 el(
-                  "button",
-                  {
-                    class: "btn secondary",
-                    onclick: () => openExistingProgramPicker(),
-                  },
-                  "Editar Programa"
+                  "div",
+                  { class: "badge" },
+                  "Programas cadastrados (servidor)"
+                ),
+                programsChecklist.wrap,
+                el("div", { class: "row wrap mt-1" }, [
+                  editSelectedExistingProgramBtn,
+                  deleteSelectedExistingProgramBtn,
+                ]),
+                el(
+                  "div",
+                  { class: "small mt-1" },
+                  "Selecione 1 programa acima para editar ou excluir."
                 ),
               ])
             : "",
