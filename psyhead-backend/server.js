@@ -2703,20 +2703,32 @@ app.post(
     }
 
     try {
-      const folder = req.pastaCurricular;
       const programRes = await pool.query(
-        "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
+        "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
         [programId],
       );
       if (!programRes.rows.length) {
         return res.status(404).json({ error: "Programa não encontrado." });
       }
-      if (
-        Number(programRes.rows[0].paciente_id) !== Number(folder.paciente_id)
-      ) {
-        return res.status(400).json({
-          error: "O programa deve pertencer ao mesmo paciente da pasta.",
-        });
+
+      const prog = programRes.rows[0];
+      // Permite anexar programas de qualquer paciente, desde que o usuário tenha acesso ao programa.
+      if (prog.paciente_id) {
+        const ok = await assertCanAccessPacienteId(req, res, prog.paciente_id);
+        if (!ok) return;
+      } else {
+        // Programa sem paciente: só o terapeuta dono (ou admin) pode anexar.
+        if (req.terapeuta?.role === "paciente") {
+          return res
+            .status(403)
+            .json({ error: "Pacientes não podem anexar este programa." });
+        }
+        if (
+          req.terapeuta?.role !== "admin" &&
+          String(prog.terapeuta_id || "") !== String(req.terapeuta?.id || "")
+        ) {
+          return res.status(403).json({ error: "Acesso negado ao programa." });
+        }
       }
 
       await pool.query(

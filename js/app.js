@@ -879,9 +879,19 @@ const Views = {
         return;
       }
 
-      const patientPrograms = programs
-        .filter((p) => String(p.patientId) === String(selectedPatientId))
-        .map((p) => [p.id, p.name]);
+      const { programs: allPrograms, patients: allPatients } = Store.get();
+      const byPatientId = new Map(
+        (allPatients || []).map((p) => [String(p.id), String(p.name || "")])
+      );
+
+      const patientPrograms = (allPrograms || [])
+        .slice()
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+        .map((p) => {
+          const pid = String(p.patientId || "");
+          const patientName = pid ? byPatientId.get(pid) || "Paciente não encontrado" : "Sem paciente";
+          return [p.id, `${p.name} — ${patientName}`];
+        });
 
       const targetOptions = (targets || []).map((t) => [t.id, t.label]);
 
