@@ -244,7 +244,7 @@ const syncFromBackend = async () => {
       const data = await programsRes.json();
       programs = data.map((p) => ({
         id: String(p.id),
-        patientId: String(p.paciente_id),
+        patientId: p.paciente_id ? String(p.paciente_id) : "",
         name: p.nome,
         code: p.codigo || "",
         description: p.descricao || "",
@@ -1592,7 +1592,7 @@ const Views = {
               el(
                 "div",
                 { class: "small mt-2" },
-                patient?.name || "Paciente não encontrado"
+                p.patientId ? patient?.name || "Paciente não encontrado" : "Sem paciente"
               ),
               el("div", { class: "mt-2" }, [
                 el(
@@ -2846,7 +2846,7 @@ const Views = {
         el(
           "div",
           { class: "small mt-1" },
-          "Dica: se não selecionar um paciente, o programa será salvo como MODELO reutilizável."
+          "Paciente é opcional: você pode salvar sem paciente e vincular depois."
         ),
         Field("Nome do Programa *", name),
         Field("Categoria", category),
@@ -2906,8 +2906,6 @@ const Views = {
             {
               class: "btn",
               onclick: async () => {
-                if (program && program.id && !patientSel.value)
-                  return toast("Selecione o paciente");
                 if (!name.value.trim())
                   return toast("Informe o nome do programa");
 
@@ -2926,33 +2924,8 @@ const Views = {
                 }
                 if (!selectedCode && program?.code) selectedCode = String(program.code);
 
-                // Se não selecionou paciente e é um novo registro, salva como MODELO reutilizável.
-                if (!patientSel.value && !(program && program.id)) {
-                  const data = loadCustomTemplates();
-                  const id = crypto?.randomUUID
-                    ? crypto.randomUUID()
-                    : Math.random().toString(36).slice(2);
-                  const model = {
-                    id,
-                    name: name.value.trim(),
-                    code: selectedCode,
-                    description: description.value,
-                    category: category.value,
-                    targetBehavior: target.value,
-                    currentCriteria: criteria.value,
-                    createdAt: new Date().toISOString(),
-                  };
-                  data.programModels = Array.isArray(data.programModels)
-                    ? data.programModels
-                    : [];
-                  data.programModels.push(model);
-                  saveCustomTemplates(data);
-                  Modal.close();
-                  return toast("Modelo de programa salvo!");
-                }
-
                 const payload = {
-                  patientId: patientSel.value,
+                  patientId: patientSel.value ? patientSel.value : null,
                   name: name.value,
                   code: selectedCode,
                   description: description.value,

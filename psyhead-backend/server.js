@@ -64,7 +64,7 @@ const FINANCE_BLOCKED_EMAILS = new Set(
   )
     .split(",")
     .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
+    .filter(Boolean),
 );
 
 // Bloqueio pontual de campos sensíveis dentro de agendamento de sessões
@@ -78,13 +78,13 @@ const SESSION_PAYMENT_FIELDS_BLOCKED_EMAILS = new Set(
   )
     .split(",")
     .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
+    .filter(Boolean),
 );
 
 // Compartilhamento restrito: pacientes do admin talitauenopsi@gmail.com
 // Só podem ser acessados por: o próprio talitauenopsi + 3 emails liberados
 const TALITAU_EMAIL = String(
-  process.env.TALITAU_EMAIL || "talitauenopsi@gmail.com"
+  process.env.TALITAU_EMAIL || "talitauenopsi@gmail.com",
 )
   .trim()
   .toLowerCase();
@@ -96,7 +96,7 @@ const TALITAU_SHARED_PATIENTS_ALLOWED_EMAILS = new Set(
   )
     .split(",")
     .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
+    .filter(Boolean),
 );
 
 const normalizeEmail = (email) =>
@@ -124,7 +124,7 @@ const getTalitauUserId = async () => {
   if (TALITAU_USER_ID_CACHE) return TALITAU_USER_ID_CACHE;
   const result = await pool.query(
     "SELECT id FROM terapeutas WHERE lower(trim(email)) = $1 LIMIT 1",
-    [TALITAU_EMAIL]
+    [TALITAU_EMAIL],
   );
   TALITAU_USER_ID_CACHE = result.rows[0]?.id || null;
   return TALITAU_USER_ID_CACHE;
@@ -149,7 +149,7 @@ const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
 
     const result = await pool.query(
       "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
-      [pacienteId]
+      [pacienteId],
     );
 
     if (result.rows.length === 0) {
@@ -214,7 +214,7 @@ const verificarAcessoSessao = async (req, res, next) => {
         JOIN pacientes p ON p.id = s.paciente_id
         WHERE s.id = $1
       `,
-      [id]
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -239,7 +239,7 @@ const verificarAcessoMedicacao = async (req, res, next) => {
         JOIN pacientes p ON p.id = m.paciente_id
         WHERE m.id = $1
       `,
-      [id]
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -257,7 +257,7 @@ const verificarAcessoMedicacao = async (req, res, next) => {
 const getPacienteForAccess = async (pacienteId) => {
   const result = await pool.query(
     "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
-    [pacienteId]
+    [pacienteId],
   );
   return result.rows[0] || null;
 };
@@ -311,7 +311,7 @@ const verificarAcessoPastaCurricular = async (req, res, next) => {
 
     const result = await pool.query(
       "SELECT id, paciente_id FROM aba_pastas_curriculares WHERE id = $1",
-      [pastaId]
+      [pastaId],
     );
     if (!result.rows.length) {
       return res.status(404).json({ error: "Pasta não encontrada." });
@@ -413,7 +413,7 @@ app.post("/api/auth/login", async (req, res) => {
       process.env.JWT_SECRET || "hash123",
       {
         expiresIn: "8h",
-      }
+      },
     );
 
     res.status(200).json({
@@ -501,7 +501,7 @@ app.post(
     } finally {
       client.release();
     }
-  }
+  },
 );
 
 // rota pra listar todos os usuarios menos terapeuta
@@ -767,7 +767,7 @@ app.get(
         error: "erro interno do servidor, consulte o suporte",
       });
     }
-  }
+  },
 );
 
 //rota pra atualizar um paciente
@@ -847,7 +847,7 @@ app.put(
         error: "erro interno do servidor, consulte o suporte",
       });
     }
-  }
+  },
 );
 
 //rota listar paciente só admins
@@ -864,7 +864,7 @@ app.get(
       console.error("Erro ao listar terapeutas:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 //rota listar logins pacientes órfãos (sem paciente associado)
@@ -885,7 +885,7 @@ app.get(
       console.error("Erro ao listar logins órfãos:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 //só admins podem atribuir pacientes
@@ -919,7 +919,7 @@ app.put(
       values.push(pacienteId);
 
       const queryText = `UPDATE pacientes SET ${queryCampos.join(
-        ", "
+        ", ",
       )} WHERE id = $${valueCount} RETURNING *;`;
       const result = await pool.query(queryText, values);
 
@@ -940,7 +940,7 @@ app.put(
       }
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 // Rota para o admin excluir um usuário (terapeuta/admin/paciente)
@@ -963,7 +963,7 @@ app.delete(
 
       const userRes = await client.query(
         "SELECT id, tipo_login FROM terapeutas WHERE id = $1",
-        [id]
+        [id],
       );
       if (userRes.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -976,14 +976,14 @@ app.delete(
         // Remover dados clínicos relacionados ao paciente antes de remover o perfil
         const pacientesRes = await client.query(
           "SELECT id FROM pacientes WHERE usuario_id = $1",
-          [id]
+          [id],
         );
 
         for (const p of pacientesRes.rows) {
           const pacienteId = p.id;
           await client.query(
             "DELETE FROM avaliacoes WHERE sessao_id IN (SELECT id FROM sessoes WHERE paciente_id = $1)",
-            [pacienteId]
+            [pacienteId],
           );
           await client.query("DELETE FROM sessoes WHERE paciente_id = $1", [
             pacienteId,
@@ -1002,7 +1002,7 @@ app.delete(
         // Se for terapeuta ou admin, apenas desassocia pacientes e remove o login
         await client.query(
           "UPDATE pacientes SET terapeuta_id = NULL WHERE terapeuta_id = $1",
-          [id]
+          [id],
         );
         await client.query("DELETE FROM terapeutas WHERE id = $1", [id]);
       }
@@ -1016,7 +1016,7 @@ app.delete(
     } finally {
       client.release();
     }
-  }
+  },
 );
 
 app.get(
@@ -1032,7 +1032,7 @@ app.get(
       console.error("Erro ao listar terapeutas:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 //só admin lista os pacientes
@@ -1069,7 +1069,7 @@ app.put(
       values.push(pacienteId); // O pacienteId é sempre o último
 
       const queryText = `UPDATE pacientes SET ${queryCampos.join(
-        ", "
+        ", ",
       )} WHERE id = $${valueCount} RETURNING *;`;
       const result = await pool.query(queryText, values);
 
@@ -1091,7 +1091,7 @@ app.put(
       }
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 app.delete(
@@ -1119,7 +1119,7 @@ app.delete(
         error: "Erro interno do servidor",
       });
     }
-  }
+  },
 );
 
 //rota para marcar uma sessao
@@ -1146,7 +1146,7 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
     // Garante que o usuário tem acesso ao paciente antes de criar a sessão
     const pacienteRes = await pool.query(
       "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
-      [paciente_id]
+      [paciente_id],
     );
     if (pacienteRes.rows.length === 0) {
       return res.status(404).json({ error: "Paciente não encontrado." });
@@ -1178,7 +1178,7 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
     `;
 
     const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(
-      req.terapeuta
+      req.terapeuta,
     );
     const valor_sessao = paymentFieldsBlocked ? null : rawValorSessao;
     const status_pagamento = paymentFieldsBlocked
@@ -1241,7 +1241,7 @@ app.get(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra atualizar uma sessão
@@ -1267,7 +1267,7 @@ app.put(
 
     try {
       const paymentFieldsBlocked = isSessionPaymentFieldsBlockedUser(
-        req.terapeuta
+        req.terapeuta,
       );
 
       let queryText;
@@ -1319,7 +1319,7 @@ app.put(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra excluir uma sessão
@@ -1345,7 +1345,7 @@ app.delete(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra buscar todas as sessões de um paciente especific
@@ -1365,8 +1365,8 @@ app.get(
         .status(200)
         .json(
           result.rows.map((r) =>
-            sanitizeSessaoForPaymentPrivacy(r, req.terapeuta)
-          )
+            sanitizeSessaoForPaymentPrivacy(r, req.terapeuta),
+          ),
         );
     } catch (error) {
       console.error("Erro ao buscar sessões do paciente:", error);
@@ -1374,7 +1374,7 @@ app.get(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra alimentar o fullcalender biblioteca do js
@@ -1476,7 +1476,7 @@ app.post(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra listar todas as medicações de um paciente
@@ -1496,7 +1496,7 @@ app.get(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra atualizar uma medicacao
@@ -1548,7 +1548,7 @@ app.put(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pra excluir uma medicacao
@@ -1574,7 +1574,7 @@ app.delete(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota pro resumo financeiro do mes atual
@@ -1612,7 +1612,7 @@ app.get(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 //rota para as transacoes recentes
@@ -1644,7 +1644,7 @@ app.get(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 //relatorios rota geração
 app.post(
@@ -1702,12 +1702,31 @@ app.post(
         error: "Erro interno do servidor.",
       });
     }
-  }
+  },
 );
 
 // ============================
 // Rotas ABA+ (Programas, Sessões, Evoluções, Planos)
 // ============================
+
+async function ensureAbaProgramasTerapeutaColumn() {
+  try {
+    await pool.query(
+      "ALTER TABLE aba_programas ADD COLUMN IF NOT EXISTS terapeuta_id INTEGER",
+    );
+    // Permite salvar programas sem paciente.
+    await pool.query(
+      "ALTER TABLE aba_programas ALTER COLUMN paciente_id DROP NOT NULL"
+    );
+  } catch (e) {
+    console.warn(
+      "Aviso: não foi possível garantir coluna terapeuta_id em aba_programas.",
+      e?.message || e,
+    );
+  }
+}
+
+ensureAbaProgramasTerapeutaColumn();
 
 // Programas ABA
 app.get("/api/aba/programas", verificarToken, async (req, res) => {
@@ -1717,7 +1736,7 @@ app.get("/api/aba/programas", verificarToken, async (req, res) => {
   let queryText = `
     SELECT ap.*, p.nome_completo AS paciente_nome
     FROM aba_programas ap
-    JOIN pacientes p ON ap.paciente_id = p.id
+    LEFT JOIN pacientes p ON ap.paciente_id = p.id
   `;
   let values = [];
 
@@ -1728,10 +1747,12 @@ app.get("/api/aba/programas", verificarToken, async (req, res) => {
       canAccessTalitauPatients(req.terapeuta) &&
       Number(talitauId) !== Number(userId)
     ) {
-      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      queryText +=
+        " WHERE ((ap.paciente_id IS NOT NULL AND (p.terapeuta_id = $1 OR p.terapeuta_id = $2)) OR (ap.paciente_id IS NULL AND (ap.terapeuta_id = $1 OR ap.terapeuta_id = $2)))";
       values = [userId, talitauId];
     } else {
-      queryText += " WHERE p.terapeuta_id = $1";
+      queryText +=
+        " WHERE ((ap.paciente_id IS NOT NULL AND p.terapeuta_id = $1) OR (ap.paciente_id IS NULL AND ap.terapeuta_id = $1))";
       values = [userId];
     }
   } else if (role === "paciente") {
@@ -1768,24 +1789,35 @@ app.post("/api/aba/programas", verificarToken, async (req, res) => {
     status,
   } = req.body;
 
-  if (!patientId || !name) {
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: "Nome do programa é obrigatório." });
+  }
+
+  const normalizedPatientId = patientId ? String(patientId) : null;
+  if (!normalizedPatientId && req.terapeuta?.role === "paciente") {
     return res
-      .status(400)
-      .json({ error: "Paciente e nome do programa são obrigatórios." });
+      .status(403)
+      .json({ error: "Pacientes não podem criar programas sem paciente." });
   }
 
   try {
+    if (normalizedPatientId) {
+      const ok = await assertCanAccessPacienteId(req, res, normalizedPatientId);
+      if (!ok) return;
+    }
+
     const queryText = `
       INSERT INTO aba_programas (
-        paciente_id, codigo, nome, categoria, descricao,
+        paciente_id, terapeuta_id, codigo, nome, categoria, descricao,
         comportamento_alvo, criterio_atual, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *;
     `;
     const values = [
-      patientId,
+      normalizedPatientId,
+      req.terapeuta?.id || null,
       code || null,
-      name,
+      String(name).trim(),
       category || "communication",
       description || null,
       targetBehavior || null,
@@ -1813,31 +1845,73 @@ app.put("/api/aba/programas/:id", verificarToken, async (req, res) => {
     status,
   } = req.body;
 
-  if (!patientId || !name) {
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: "Nome do programa é obrigatório." });
+  }
+
+  const normalizedPatientId = patientId ? String(patientId) : null;
+  if (!normalizedPatientId && req.terapeuta?.role === "paciente") {
     return res
-      .status(400)
-      .json({ error: "Paciente e nome do programa são obrigatórios." });
+      .status(403)
+      .json({ error: "Pacientes não podem deixar programa sem paciente." });
   }
 
   try {
+    const existingRes = await pool.query(
+      "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
+      [id],
+    );
+    if (!existingRes.rows.length) {
+      return res.status(404).json({ error: "Programa ABA não encontrado." });
+    }
+
+    const existing = existingRes.rows[0];
+    if (existing.paciente_id) {
+      const ok = await assertCanAccessPacienteId(
+        req,
+        res,
+        existing.paciente_id,
+      );
+      if (!ok) return;
+    } else {
+      if (req.terapeuta?.role === "paciente") {
+        return res
+          .status(403)
+          .json({ error: "Pacientes não podem editar programas." });
+      }
+      if (
+        req.terapeuta?.role !== "admin" &&
+        String(existing.terapeuta_id || "") !== String(req.terapeuta?.id || "")
+      ) {
+        return res.status(403).json({ error: "Acesso negado ao programa." });
+      }
+    }
+
+    if (normalizedPatientId) {
+      const ok = await assertCanAccessPacienteId(req, res, normalizedPatientId);
+      if (!ok) return;
+    }
+
     const queryText = `
       UPDATE aba_programas SET
         paciente_id = $1,
-        codigo = $2,
-        nome = $3,
-        categoria = $4,
-        descricao = $5,
-        comportamento_alvo = $6,
-        criterio_atual = $7,
-        status = $8,
+        terapeuta_id = $2,
+        codigo = $3,
+        nome = $4,
+        categoria = $5,
+        descricao = $6,
+        comportamento_alvo = $7,
+        criterio_atual = $8,
+        status = $9,
         atualizado_em = NOW()
-      WHERE id = $9
+      WHERE id = $10
       RETURNING *;
     `;
     const values = [
-      patientId,
+      normalizedPatientId,
+      req.terapeuta?.id || existing.terapeuta_id || null,
       code || null,
-      name,
+      String(name).trim(),
       category || "communication",
       description || null,
       targetBehavior || null,
@@ -1867,20 +1941,29 @@ app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
     }
 
     const programRes = await pool.query(
-      "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
-      [id]
+      "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
+      [id],
     );
     if (!programRes.rows.length) {
       return res.status(404).json({ error: "Programa ABA não encontrado." });
     }
 
-    const pacienteId = programRes.rows[0].paciente_id;
-    const ok = await assertCanAccessPacienteId(req, res, pacienteId);
-    if (!ok) return;
+    const row = programRes.rows[0];
+    if (row.paciente_id) {
+      const ok = await assertCanAccessPacienteId(req, res, row.paciente_id);
+      if (!ok) return;
+    } else {
+      if (
+        req.terapeuta?.role !== "admin" &&
+        String(row.terapeuta_id || "") !== String(req.terapeuta?.id || "")
+      ) {
+        return res.status(403).json({ error: "Acesso negado ao programa." });
+      }
+    }
 
     const result = await pool.query(
       "DELETE FROM aba_programas WHERE id = $1 RETURNING id",
-      [id]
+      [id],
     );
     if (!result.rowCount) {
       return res.status(404).json({ error: "Programa ABA não encontrado." });
@@ -1897,7 +1980,7 @@ app.get("/api/aba/alvos", verificarToken, async (req, res) => {
     const result = await pool.query(
       `SELECT id, label
        FROM aba_alvos
-       ORDER BY created_at ASC`
+       ORDER BY created_at ASC`,
     );
     res.status(200).json(result.rows);
   } catch (error) {
@@ -1919,7 +2002,7 @@ app.post("/api/aba/alvos", verificarToken, async (req, res) => {
       `INSERT INTO aba_alvos (terapeuta_id, label)
        VALUES ($1, $2)
        RETURNING id, label;`,
-      [userId, label.trim()]
+      [userId, label.trim()],
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -1940,7 +2023,7 @@ app.put("/api/aba/alvos/:id", verificarToken, async (req, res) => {
   try {
     const existing = await pool.query(
       "SELECT id, terapeuta_id FROM aba_alvos WHERE id = $1",
-      [id]
+      [id],
     );
     if (!existing.rows.length) {
       return res.status(404).json({ error: "Alvo não encontrado." });
@@ -1964,7 +2047,7 @@ app.put("/api/aba/alvos/:id", verificarToken, async (req, res) => {
 
     const result = await pool.query(
       "UPDATE aba_alvos SET label = $1 WHERE id = $2 RETURNING id, label",
-      [String(label).trim(), id]
+      [String(label).trim(), id],
     );
     if (!result.rowCount) {
       return res.status(404).json({ error: "Alvo não encontrado." });
@@ -1986,7 +2069,7 @@ app.delete("/api/aba/alvos/:id", verificarToken, async (req, res) => {
   try {
     const existing = await pool.query(
       "SELECT id, terapeuta_id FROM aba_alvos WHERE id = $1",
-      [id]
+      [id],
     );
     if (!existing.rows.length) {
       return res.status(404).json({ error: "Alvo não encontrado." });
@@ -2010,7 +2093,7 @@ app.delete("/api/aba/alvos/:id", verificarToken, async (req, res) => {
 
     const result = await pool.query(
       "DELETE FROM aba_alvos WHERE id = $1 RETURNING id, label",
-      [id]
+      [id],
     );
     if (!result.rowCount) {
       return res.status(404).json({ error: "Alvo não encontrado." });
@@ -2125,7 +2208,7 @@ app.delete("/api/aba/sessoes/:id", verificarToken, async (req, res) => {
   try {
     const result = await pool.query(
       "DELETE FROM aba_sessoes WHERE id = $1 RETURNING id",
-      [id]
+      [id],
     );
     if (!result.rowCount) {
       return res.status(404).json({ error: "Sessão ABA não encontrada." });
@@ -2311,7 +2394,7 @@ app.post("/api/aba/planos", verificarToken, async (req, res) => {
         ) VALUES ($1, $2, $3, $4, $5)
         RETURNING *;
       `,
-      [patientId, title, startDate, endDate || null, status || "draft"]
+      [patientId, title, startDate, endDate || null, status || "draft"],
     );
 
     const plan = planResult.rows[0];
@@ -2322,7 +2405,7 @@ app.post("/api/aba/planos", verificarToken, async (req, res) => {
       if (!g) continue;
       await client.query(
         "INSERT INTO aba_plano_metas (plano_id, ordem, descricao) VALUES ($1, $2, $3)",
-        [plan.id, i + 1, g]
+        [plan.id, i + 1, g],
       );
     }
 
@@ -2365,7 +2448,7 @@ app.put("/api/aba/planos/:id", verificarToken, async (req, res) => {
         WHERE id = $6
         RETURNING *;
       `,
-      [patientId, title, startDate, endDate || null, status || "draft", id]
+      [patientId, title, startDate, endDate || null, status || "draft", id],
     );
 
     if (!planResult.rows.length) {
@@ -2381,7 +2464,7 @@ app.put("/api/aba/planos/:id", verificarToken, async (req, res) => {
       if (!g) continue;
       await client.query(
         "INSERT INTO aba_plano_metas (plano_id, ordem, descricao) VALUES ($1, $2, $3)",
-        [id, i + 1, g]
+        [id, i + 1, g],
       );
     }
 
@@ -2404,7 +2487,7 @@ app.delete("/api/aba/planos/:id", verificarToken, async (req, res) => {
   try {
     const result = await pool.query(
       "DELETE FROM aba_planos_terapeuticos WHERE id = $1 RETURNING id",
-      [id]
+      [id],
     );
     if (!result.rowCount) {
       return res.status(404).json({ error: "Plano ABA não encontrado." });
@@ -2423,12 +2506,12 @@ app.delete("/api/aba/planos/:id", verificarToken, async (req, res) => {
 async function ensureAbaPastaAlvosProgramColumn() {
   try {
     await pool.query(
-      "ALTER TABLE aba_pasta_alvos ADD COLUMN IF NOT EXISTS programa_id INTEGER"
+      "ALTER TABLE aba_pasta_alvos ADD COLUMN IF NOT EXISTS programa_id INTEGER",
     );
   } catch (e) {
     console.warn(
       "Aviso: não foi possível garantir coluna programa_id em aba_pasta_alvos.",
-      e?.message || e
+      e?.message || e,
     );
   }
 }
@@ -2538,7 +2621,7 @@ app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
       } catch (legacyErr) {
         console.error(
           "Erro ao listar pastas curriculares (fallback):",
-          legacyErr
+          legacyErr,
         );
       }
     }
@@ -2566,7 +2649,7 @@ app.post("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
         VALUES ($1, $2, $3)
         RETURNING id, paciente_id, nome, criado_em, atualizado_em;
       `,
-      [patientId, String(name).trim(), req.terapeuta.id]
+      [patientId, String(name).trim(), req.terapeuta.id],
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -2592,7 +2675,7 @@ app.delete(
 
       const del = await pool.query(
         "DELETE FROM aba_pastas_curriculares WHERE id = $1 RETURNING id",
-        [id]
+        [id],
       );
       if (!del.rowCount) {
         await pool.query("ROLLBACK");
@@ -2606,7 +2689,7 @@ app.delete(
       console.error("Erro ao excluir pasta curricular:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 app.post(
@@ -2623,7 +2706,7 @@ app.post(
       const folder = req.pastaCurricular;
       const programRes = await pool.query(
         "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
-        [programId]
+        [programId],
       );
       if (!programRes.rows.length) {
         return res.status(404).json({ error: "Programa não encontrado." });
@@ -2642,12 +2725,12 @@ app.post(
           VALUES ($1, $2)
           ON CONFLICT DO NOTHING;
         `,
-        [id, programId]
+        [id, programId],
       );
 
       await pool.query(
         "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
-        [id]
+        [id],
       );
 
       res.status(200).json({ message: "Programa anexado." });
@@ -2655,7 +2738,7 @@ app.post(
       console.error("Erro ao anexar programa à pasta curricular:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 app.post(
@@ -2671,7 +2754,7 @@ app.post(
     try {
       const alvoRes = await pool.query(
         "SELECT id FROM aba_alvos WHERE id = $1",
-        [alvoId]
+        [alvoId],
       );
       if (!alvoRes.rows.length) {
         return res.status(404).json({ error: "Alvo não encontrado." });
@@ -2681,7 +2764,7 @@ app.post(
       if (programId) {
         const programRes = await pool.query(
           "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
-          [programId]
+          [programId],
         );
         if (!programRes.rows.length) {
           return res.status(404).json({ error: "Programa não encontrado." });
@@ -2695,7 +2778,7 @@ app.post(
         }
         const attachedRes = await pool.query(
           "SELECT 1 FROM aba_pasta_programas WHERE pasta_id = $1 AND programa_id = $2",
-          [id, programId]
+          [id, programId],
         );
         if (!attachedRes.rowCount) {
           return res.status(400).json({
@@ -2713,7 +2796,7 @@ app.post(
               ON CONFLICT (pasta_id, alvo_id)
               DO UPDATE SET programa_id = EXCLUDED.programa_id;
             `,
-            [id, alvoId, programId]
+            [id, alvoId, programId],
           );
         } else {
           await pool.query(
@@ -2722,7 +2805,7 @@ app.post(
               VALUES ($1, $2)
               ON CONFLICT DO NOTHING;
             `,
-            [id, alvoId]
+            [id, alvoId],
           );
         }
       } catch (insertErr) {
@@ -2733,13 +2816,13 @@ app.post(
             VALUES ($1, $2)
             ON CONFLICT DO NOTHING;
           `,
-          [id, alvoId]
+          [id, alvoId],
         );
       }
 
       await pool.query(
         "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
-        [id]
+        [id],
       );
 
       res.status(200).json({ message: "Alvo anexado." });
@@ -2747,7 +2830,7 @@ app.post(
       console.error("Erro ao anexar alvo à pasta curricular:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
-  }
+  },
 );
 
 app.listen(PORT, () => {
