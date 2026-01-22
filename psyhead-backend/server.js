@@ -1582,16 +1582,59 @@ app.get(
   "/api/financeiro/resumo",
   [verificarToken, verificarAcessoFinanceiro],
   async (req, res) => {
-    const { id: userId } = req.terapeuta;
+    const { id: userId, role } = req.terapeuta;
+    const terapeutaIdQuery = req.query?.terapeutaId || req.query?.therapistId;
     console.log("Buscando resumo financeiro do mês atual");
     try {
+      const talitauId = await getTalitauUserId();
+
+      // Escopo de acesso (admin pode ver tudo; terapeuta vê apenas seus pacientes,
+      // com exceção de compartilhamento restrito do Talitau)
+      const whereParts = [
+        "s.data_sessao >= DATE_TRUNC('month', CURRENT_DATE)",
+      ];
+      const values = [];
+
+      if (role === "admin") {
+        if (terapeutaIdQuery) {
+          if (
+            talitauId &&
+            String(terapeutaIdQuery) === String(talitauId) &&
+            !canAccessTalitauPatients(req.terapeuta)
+          ) {
+            return res.status(403).json({
+              error: "Acesso negado aos pacientes deste terapeuta.",
+            });
+          }
+          values.push(String(terapeutaIdQuery));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        } else if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+          values.push(String(talitauId));
+          whereParts.push(`(p.terapeuta_id IS NULL OR p.terapeuta_id <> $${values.length})`);
+        }
+      } else {
+        if (
+          talitauId &&
+          canAccessTalitauPatients(req.terapeuta) &&
+          Number(talitauId) !== Number(userId)
+        ) {
+          values.push(String(userId), String(talitauId));
+          whereParts.push(
+            `(p.terapeuta_id = $${values.length - 1} OR p.terapeuta_id = $${values.length})`,
+          );
+        } else {
+          values.push(String(userId));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        }
+      }
+
       const queryText = `
       SELECT
         -- Soma o valor da sessão APENAS se o status for 'Pago'
-        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN s.valor_sessao ELSE 0 END), 0) AS faturamento_mes,
+        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN COALESCE(s.valor_sessao, 0) ELSE 0 END), 0) AS faturamento_mes,
         
         -- Soma o valor da sessão APENAS se o status for 'Pendente'
-        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pendente' THEN s.valor_sessao ELSE 0 END), 0) AS a_receber,
+        COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pendente' THEN COALESCE(s.valor_sessao, 0) ELSE 0 END), 0) AS a_receber,
         
         -- Conta quantas sessões foram pagas
         COUNT(CASE WHEN s.status_pagamento = 'Pago' THEN 1 END) AS sessoes_pagas,
@@ -1601,10 +1644,9 @@ app.get(
 
       FROM sessoes s
       JOIN pacientes p ON s.paciente_id = p.id
-      WHERE s.data_sessao >= DATE_TRUNC('month', CURRENT_DATE)
-      AND p.terapeuta_id = $1; -- Filtra apenas para o admin/terapeuta logado
+      WHERE ${whereParts.join(" AND ")};
     `;
-      const result = await pool.query(queryText, [userId]);
+      const result = await pool.query(queryText, values);
       res.status(200).json(result.rows[0]);
     } catch (error) {
       console.error("Erro ao buscar resumo financeiro:", error);
@@ -1620,23 +1662,62 @@ app.get(
   "/api/financeiro/transacoes",
   [verificarToken, verificarAcessoFinanceiro],
   async (req, res) => {
-    const { id: userId } = req.terapeuta;
+    const { id: userId, role } = req.terapeuta;
+    const terapeutaIdQuery = req.query?.terapeutaId || req.query?.therapistId;
     console.log("Buscando transações financeiras recentes");
     try {
+      const talitauId = await getTalitauUserId();
+
+      const whereParts = [];
+      const values = [];
+
+      if (role === "admin") {
+        if (terapeutaIdQuery) {
+          if (
+            talitauId &&
+            String(terapeutaIdQuery) === String(talitauId) &&
+            !canAccessTalitauPatients(req.terapeuta)
+          ) {
+            return res.status(403).json({
+              error: "Acesso negado aos pacientes deste terapeuta.",
+            });
+          }
+          values.push(String(terapeutaIdQuery));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        } else if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+          values.push(String(talitauId));
+          whereParts.push(`(p.terapeuta_id IS NULL OR p.terapeuta_id <> $${values.length})`);
+        }
+      } else {
+        if (
+          talitauId &&
+          canAccessTalitauPatients(req.terapeuta) &&
+          Number(talitauId) !== Number(userId)
+        ) {
+          values.push(String(userId), String(talitauId));
+          whereParts.push(
+            `(p.terapeuta_id = $${values.length - 1} OR p.terapeuta_id = $${values.length})`,
+          );
+        } else {
+          values.push(String(userId));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        }
+      }
+
       const queryText = `
       SELECT 
         s.id,
         s.data_sessao,
-        s.valor_sessao,
+        COALESCE(s.valor_sessao, 0) AS valor_sessao,
         s.status_pagamento,
         p.nome_completo AS paciente_nome
       FROM sessoes s
       JOIN pacientes p ON s.paciente_id = p.id
-      WHERE p.terapeuta_id = $1
+      ${whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : ""}
       ORDER BY s.data_sessao DESC
       LIMIT 10; -- Pega as 10 últimas sessões
     `;
-      const result = await pool.query(queryText, [userId]);
+      const result = await pool.query(queryText, values);
       res.status(200).json(result.rows);
     } catch (error) {
       console.error("Erro ao buscar transações:", error);
@@ -1651,8 +1732,9 @@ app.post(
   "/api/relatorios/financeiro",
   [verificarToken, verificarAcessoFinanceiro],
   async (req, res) => {
-    const { data_inicio, data_fim } = req.body;
-    const { id: userId } = req.terapeuta;
+    const { data_inicio, data_fim, terapeutaId, therapistId } = req.body;
+    const { id: userId, role } = req.terapeuta;
+    const terapeutaIdBody = terapeutaId || therapistId;
     console.log(`Gerando relatório financeiro de ${data_inicio} a ${data_fim}`);
 
     if (!data_inicio || !data_fim) {
@@ -1662,35 +1744,64 @@ app.post(
     }
 
     try {
+      const talitauId = await getTalitauUserId();
+
+      // Monta filtros (admin pode ver tudo; opcionalmente filtrar por terapeuta)
+      const values = [data_inicio, data_fim];
+      const whereParts = ["s.data_sessao::date BETWEEN $1 AND $2"];
+
+      if (role === "admin") {
+        if (terapeutaIdBody) {
+          if (
+            talitauId &&
+            String(terapeutaIdBody) === String(talitauId) &&
+            !canAccessTalitauPatients(req.terapeuta)
+          ) {
+            return res.status(403).json({
+              error: "Acesso negado aos pacientes deste terapeuta.",
+            });
+          }
+          values.push(String(terapeutaIdBody));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        } else if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+          values.push(String(talitauId));
+          whereParts.push(`(p.terapeuta_id IS NULL OR p.terapeuta_id <> $${values.length})`);
+        }
+      } else {
+        if (
+          talitauId &&
+          canAccessTalitauPatients(req.terapeuta) &&
+          Number(talitauId) !== Number(userId)
+        ) {
+          values.push(String(userId), String(talitauId));
+          whereParts.push(
+            `(p.terapeuta_id = $${values.length - 1} OR p.terapeuta_id = $${values.length})`,
+          );
+        } else {
+          values.push(String(userId));
+          whereParts.push(`p.terapeuta_id = $${values.length}`);
+        }
+      }
+
       const queryResumo = `
             SELECT
-                COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN s.valor_sessao ELSE 0 END), 0) AS faturamento_total,
+            COALESCE(SUM(CASE WHEN s.status_pagamento = 'Pago' THEN COALESCE(s.valor_sessao, 0) ELSE 0 END), 0) AS faturamento_total,
                 COUNT(*) AS total_sessoes
             FROM sessoes s
             JOIN pacientes p ON s.paciente_id = p.id
-            WHERE s.data_sessao::date BETWEEN $1 AND $2
-            AND p.terapeuta_id = $3;
+            WHERE ${whereParts.join(" AND ")};
         `;
 
       const queryTransacoes = `
             SELECT s.data_sessao, s.valor_sessao, s.status_pagamento, p.nome_completo AS paciente_nome
             FROM sessoes s
             JOIN pacientes p ON s.paciente_id = p.id
-            WHERE s.data_sessao::date BETWEEN $1 AND $2
-            AND p.terapeuta_id = $3
+            WHERE ${whereParts.join(" AND ")}
             ORDER BY s.data_sessao DESC;
         `;
 
-      const resumoResult = await pool.query(queryResumo, [
-        data_inicio,
-        data_fim,
-        userId,
-      ]);
-      const transacoesResult = await pool.query(queryTransacoes, [
-        data_inicio,
-        data_fim,
-        userId,
-      ]);
+      const resumoResult = await pool.query(queryResumo, values);
+      const transacoesResult = await pool.query(queryTransacoes, values);
 
       res.status(200).json({
         resumo: resumoResult.rows[0],
