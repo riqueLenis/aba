@@ -2883,22 +2883,35 @@ app.post(
         return res.status(404).json({ error: "Alvo não encontrado." });
       }
 
-      const folder = req.pastaCurricular;
       if (programId) {
         const programRes = await pool.query(
-          "SELECT id, paciente_id FROM aba_programas WHERE id = $1",
+          "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
           [programId],
         );
         if (!programRes.rows.length) {
           return res.status(404).json({ error: "Programa não encontrado." });
         }
-        if (
-          Number(programRes.rows[0].paciente_id) !== Number(folder.paciente_id)
-        ) {
-          return res.status(400).json({
-            error: "O programa deve pertencer ao mesmo paciente da pasta.",
-          });
+
+        const prog = programRes.rows[0];
+        // Permite vincular alvos ao programa anexado, desde que haja acesso ao programa.
+        if (prog.paciente_id) {
+          const ok = await assertCanAccessPacienteId(req, res, prog.paciente_id);
+          if (!ok) return;
+        } else {
+          // Programa sem paciente: só o terapeuta dono (ou admin) pode vincular.
+          if (req.terapeuta?.role === "paciente") {
+            return res
+              .status(403)
+              .json({ error: "Pacientes não podem vincular alvos neste programa." });
+          }
+          if (
+            req.terapeuta?.role !== "admin" &&
+            String(prog.terapeuta_id || "") !== String(req.terapeuta?.id || "")
+          ) {
+            return res.status(403).json({ error: "Acesso negado ao programa." });
+          }
         }
+
         const attachedRes = await pool.query(
           "SELECT 1 FROM aba_pasta_programas WHERE pasta_id = $1 AND programa_id = $2",
           [id, programId],
@@ -2951,6 +2964,99 @@ app.post(
       res.status(200).json({ message: "Alvo anexado." });
     } catch (error) {
       console.error("Erro ao anexar alvo à pasta curricular:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
+app.delete(
+  "/api/aba/pastas-curriculares/:id/programas/:programId",
+  [verificarToken, verificarAcessoPastaCurricular],
+  async (req, res) => {
+    const { id, programId } = req.params;
+    if (!programId) {
+      return res.status(400).json({ error: "programId é obrigatório." });
+    }
+
+    try {
+      // Verifica se o usuário tem acesso ao programa (mesma regra do attach)
+      const programRes = await pool.query(
+        "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
+        [programId],
+      );
+      if (!programRes.rows.length) {
+        return res.status(404).json({ error: "Programa não encontrado." });
+      }
+
+      const prog = programRes.rows[0];
+      if (prog.paciente_id) {
+        const ok = await assertCanAccessPacienteId(req, res, prog.paciente_id);
+        if (!ok) return;
+      } else {
+        if (req.terapeuta?.role === "paciente") {
+          return res
+            .status(403)
+            .json({ error: "Pacientes não podem remover este programa." });
+        }
+        if (
+          req.terapeuta?.role !== "admin" &&
+          String(prog.terapeuta_id || "") !== String(req.terapeuta?.id || "")
+        ) {
+          return res.status(403).json({ error: "Acesso negado ao programa." });
+        }
+      }
+
+      await pool.query(
+        "DELETE FROM aba_pasta_programas WHERE pasta_id = $1 AND programa_id = $2",
+        [id, programId],
+      );
+
+      // Desvincula alvos associados a este programa dentro da pasta (se a coluna existir)
+      try {
+        await pool.query(
+          "UPDATE aba_pasta_alvos SET programa_id = NULL WHERE pasta_id = $1 AND programa_id = $2",
+          [id, programId],
+        );
+      } catch (e) {
+        // compatibilidade: bancos antigos sem coluna programa_id
+      }
+
+      await pool.query(
+        "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
+        [id],
+      );
+
+      res.status(200).json({ message: "Programa removido da pasta." });
+    } catch (error) {
+      console.error("Erro ao remover programa da pasta curricular:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
+app.delete(
+  "/api/aba/pastas-curriculares/:id/alvos/:alvoId",
+  [verificarToken, verificarAcessoPastaCurricular],
+  async (req, res) => {
+    const { id, alvoId } = req.params;
+    if (!alvoId) {
+      return res.status(400).json({ error: "alvoId é obrigatório." });
+    }
+
+    try {
+      await pool.query(
+        "DELETE FROM aba_pasta_alvos WHERE pasta_id = $1 AND alvo_id = $2",
+        [id, alvoId],
+      );
+
+      await pool.query(
+        "UPDATE aba_pastas_curriculares SET atualizado_em = NOW() WHERE id = $1",
+        [id],
+      );
+
+      res.status(200).json({ message: "Alvo removido da pasta." });
+    } catch (error) {
+      console.error("Erro ao remover alvo da pasta curricular:", error);
       res.status(500).json({ error: "Erro interno do servidor." });
     }
   },

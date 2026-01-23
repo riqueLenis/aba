@@ -623,6 +623,85 @@ const Views = {
 
     const listWrap = el("div", { class: "grid gap mt-3" });
 
+    const parseProgramTargets = (program) => {
+      const text = String(program?.targetBehavior || "");
+      return text
+        .split(/\n|,|;|\r/)
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+    };
+
+    const findTargetIdByLabel = (label) => {
+      const desired = String(label || "").trim().toLowerCase();
+      if (!desired) return null;
+      const { targets: allTargets } = Store.get();
+      const found = (allTargets || []).find(
+        (t) => String(t.label || "").trim().toLowerCase() === desired
+      );
+      return found ? String(found.id) : null;
+    };
+
+    const createTargetIfMissing = async (label) => {
+      const existingId = findTargetIdByLabel(label);
+      if (existingId) return existingId;
+
+      const headers = getAuthHeaders();
+      const res = await fetch(`${API_BASE}/api/aba/alvos`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ label: String(label || "").trim() }),
+      });
+      if (!res.ok) {
+        console.error("Erro ao criar alvo (auto)", await res.text().catch(() => ""));
+        return null;
+      }
+      const created = await safeJson(res);
+      if (!created?.id) return null;
+
+      // Atualiza Store para refletir novo alvo sem precisar recarregar tudo
+      Store.set((s) => ({
+        ...s,
+        targets: [...(s.targets || []), { id: String(created.id), label: created.label }],
+      }));
+
+      return String(created.id);
+    };
+
+    const autoAttachProgramTargetsToFolder = async (folderId, programId) => {
+      const { programs: allPrograms } = Store.get();
+      const prog = (allPrograms || []).find(
+        (p) => String(p.id) === String(programId)
+      );
+      if (!prog) return;
+
+      const labels = parseProgramTargets(prog);
+      if (!labels.length) return;
+
+      try {
+        const headers = getAuthHeaders();
+        for (const label of labels) {
+          const targetId = await createTargetIfMissing(label);
+          if (!targetId) continue;
+          const res = await fetch(
+            `${API_BASE}/api/aba/pastas-curriculares/${folderId}/alvos`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ alvoId: targetId, programId }),
+            }
+          );
+          if (!res.ok) {
+            console.error(
+              "Erro ao anexar alvo (auto)",
+              await res.text().catch(() => "")
+            );
+          }
+        }
+      } catch (e) {
+        console.error("ABA+: erro ao auto-anexar alvos do programa", e);
+      }
+    };
+
     const attachProgram = async (folderId, programId) => {
       if (!programId) return toast("Selecione o programa");
       try {
@@ -642,10 +721,40 @@ const Views = {
           );
           return toast("Erro ao anexar programa");
         }
+
+        // Auto-carrega os alvos cadastrados no programa ao anexar.
+        await autoAttachProgramTargetsToFolder(folderId, programId);
+
         toast("Programa anexado");
         await loadFolders();
       } catch (e) {
         console.error("ABA+: erro ao anexar programa", e);
+        toast("Falha na comunicação com o servidor");
+      }
+    };
+
+    const removeProgramFromFolder = async (folderId, programId) => {
+      const ok = confirm(
+        "Remover este programa da pasta curricular?\n\nOs alvos vinculados a ele serão desvinculados."
+      );
+      if (!ok) return;
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/aba/pastas-curriculares/${folderId}/programas/${programId}`,
+          { method: "DELETE", headers }
+        );
+        if (!res.ok) {
+          console.error(
+            "Erro ao remover programa da pasta",
+            await res.text().catch(() => "")
+          );
+          return toast("Erro ao remover programa");
+        }
+        toast("Programa removido da pasta");
+        await loadFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao remover programa da pasta", e);
         toast("Falha na comunicação com o servidor");
       }
     };
@@ -707,6 +816,30 @@ const Views = {
         await loadFolders();
       } catch (e) {
         console.error("ABA+: erro ao anexar alvo", e);
+        toast("Falha na comunicação com o servidor");
+      }
+    };
+
+    const removeTargetFromFolder = async (folderId, alvoId) => {
+      const ok = confirm("Remover este alvo da pasta curricular?");
+      if (!ok) return;
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/aba/pastas-curriculares/${folderId}/alvos/${alvoId}`,
+          { method: "DELETE", headers }
+        );
+        if (!res.ok) {
+          console.error(
+            "Erro ao remover alvo da pasta",
+            await res.text().catch(() => "")
+          );
+          return toast("Erro ao remover alvo");
+        }
+        toast("Alvo removido da pasta");
+        await loadFolders();
+      } catch (e) {
+        console.error("ABA+: erro ao remover alvo da pasta", e);
         toast("Falha na comunicação com o servidor");
       }
     };
@@ -988,6 +1121,12 @@ const Views = {
                       : "",
                   onclick: () => {
                     selectedProgramByFolder[folderId] = it.id;
+                    if (it.id && it.id !== "__unlinked__") {
+                      // Auto-carrega os alvos do programa ao selecioná-lo (evita retrabalho)
+                      autoAttachProgramTargetsToFolder(folderId, it.id).then(
+                        () => loadFolders()
+                      );
+                    }
                     renderFolders();
                   },
                 },
@@ -1062,6 +1201,15 @@ const Views = {
                                 onclick: () => editProgramName(p.id),
                               },
                               "Editar Programa"
+                            ),
+                            el(
+                              "button",
+                              {
+                                class: "btn danger",
+                                style: "padding:6px 10px;",
+                                onclick: () => removeProgramFromFolder(f.id, p.id),
+                              },
+                              "Remover"
                             ),
                           ]
                         ),
@@ -1138,6 +1286,15 @@ const Views = {
                                 onclick: () => editTargetName(a.id, a.label),
                               },
                               "Editar Alvo"
+                            ),
+                            el(
+                              "button",
+                              {
+                                class: "btn danger",
+                                style: "padding:6px 10px;",
+                                onclick: () => removeTargetFromFolder(f.id, a.id),
+                              },
+                              "Remover"
                             ),
                           ]
                         ),
