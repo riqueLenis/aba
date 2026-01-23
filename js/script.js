@@ -54,6 +54,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const sessionTherapistSelector = document.getElementById(
     "session-therapist-selector"
   );
+  // Planilha financeira (Relatórios)
+  const planilhaMesInput = document.getElementById("planilha-mes");
+  const planilhaAtualizarBtn = document.getElementById("planilha-atualizar-btn");
+  const planilhaResumoGrid = document.getElementById("planilha-resumo-grid");
+  const planilhaForm = document.getElementById("planilha-form");
+  const planilhaDataInput = document.getElementById("planilha-data");
+  const planilhaTipoInput = document.getElementById("planilha-tipo");
+  const planilhaCategoriaInput = document.getElementById("planilha-categoria");
+  const planilhaDescricaoInput = document.getElementById("planilha-descricao");
+  const planilhaValorInput = document.getElementById("planilha-valor");
+  const planilhaSalvarBtn = document.getElementById("planilha-salvar-btn");
+  const planilhaCancelarBtn = document.getElementById("planilha-cancelar-btn");
+  const planilhaTbody = document.getElementById("planilha-tbody");
   //modulo modal
   const sessionDetailModal = document.getElementById("session-detail-modal");
   const closeModalBtn = document.getElementById("close-modal-btn");
@@ -614,6 +627,9 @@ document.addEventListener("DOMContentLoaded", () => {
         "relatorio-resultado-container"
       );
       if (resultadoContainer) resultadoContainer.classList.add("hidden");
+
+      // Carrega a planilha financeira ao entrar nos relatórios
+      refreshPlanilhaFinanceira();
     }
 
     if (sectionId === "usuarios-section") {
@@ -986,6 +1002,260 @@ document.addEventListener("DOMContentLoaded", () => {
       style: "currency",
       currency: "BRL",
     });
+
+  // ============================
+  // Planilha Financeira (Relatórios Centralizados)
+  // ============================
+
+  let planilhaInitialized = false;
+  let planilhaEditingId = null;
+  let planilhaItensCache = [];
+
+  const getMesAtualYYYYMM = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  };
+
+  const setPlanilhaEditing = (item) => {
+    planilhaEditingId = item?.id ?? null;
+    if (planilhaSalvarBtn) {
+      planilhaSalvarBtn.textContent = planilhaEditingId ? "Atualizar" : "Salvar";
+    }
+    if (planilhaCancelarBtn) {
+      planilhaCancelarBtn.classList.toggle("hidden", !planilhaEditingId);
+    }
+
+    if (!item) {
+      if (planilhaForm) planilhaForm.reset();
+      if (planilhaDataInput) planilhaDataInput.value = new Date().toISOString().slice(0, 10);
+      if (planilhaTipoInput) planilhaTipoInput.value = "entrada";
+      return;
+    }
+
+    if (planilhaDataInput) planilhaDataInput.value = String(item.data || "").slice(0, 10);
+    if (planilhaTipoInput) planilhaTipoInput.value = item.tipo || "entrada";
+    if (planilhaCategoriaInput) planilhaCategoriaInput.value = item.categoria || "";
+    if (planilhaDescricaoInput) planilhaDescricaoInput.value = item.descricao || "";
+    if (planilhaValorInput) planilhaValorInput.value = String(item.valor ?? "");
+  };
+
+  const renderPlanilhaResumo = (resumo) => {
+    if (!planilhaResumoGrid) return;
+    const entradas = Number(resumo?.entradas_total || 0);
+    const saidas = Number(resumo?.saidas_total || 0);
+    const saldo = Number(resumo?.saldo || 0);
+    planilhaResumoGrid.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-card-icon icon-financeiro"><i class="fas fa-arrow-down"></i></div>
+        <div class="stat-card-info">
+          <span class="stat-card-title">Entradas</span>
+          <span class="stat-card-value">${formatarMoeda(entradas)}</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-icon icon-financeiro"><i class="fas fa-arrow-up"></i></div>
+        <div class="stat-card-info">
+          <span class="stat-card-title">Saídas</span>
+          <span class="stat-card-value">${formatarMoeda(saidas)}</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-icon icon-financeiro"><i class="fas fa-balance-scale"></i></div>
+        <div class="stat-card-info">
+          <span class="stat-card-title">Saldo</span>
+          <span class="stat-card-value">${formatarMoeda(saldo)}</span>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderPlanilhaTabela = (itens) => {
+    if (!planilhaTbody) return;
+    const rows = Array.isArray(itens) ? itens : [];
+    planilhaTbody.innerHTML = "";
+
+    if (rows.length === 0) {
+      planilhaTbody.innerHTML = '<tr><td colspan="6">Nenhum lançamento neste mês.</td></tr>';
+      return;
+    }
+
+    rows.forEach((item) => {
+      const dataFormatada = item.data
+        ? new Date(item.data).toLocaleDateString("pt-BR")
+        : "-";
+      const tipoLabel = item.tipo === "saida" ? "Saída" : "Entrada";
+      const valorFmt = formatarMoeda(item.valor || 0);
+      const linhaHTML = `
+        <tr data-planilha-id="${item.id}">
+          <td>${dataFormatada}</td>
+          <td>${tipoLabel}</td>
+          <td>${item.categoria || ""}</td>
+          <td>${item.descricao || ""}</td>
+          <td>${valorFmt}</td>
+          <td>
+            <button type="button" class="btn btn-secondary btn-sm" data-planilha-action="edit">Editar</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-planilha-action="delete">Excluir</button>
+          </td>
+        </tr>
+      `;
+      planilhaTbody.innerHTML += linhaHTML;
+    });
+  };
+
+  const getSelectedPlanilhaMes = () => {
+    const mes = String(planilhaMesInput?.value || "").trim();
+    return mes || getMesAtualYYYYMM();
+  };
+
+  const fetchPlanilhaMes = async (mes) => {
+    const url = new URL(`${API_BASE}/api/relatorios/financeiro/planilha`);
+    url.searchParams.set("mes", mes);
+    const resp = await fetch(url.toString(), { headers: getAuthHeaders() });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error(txt || "Falha ao carregar planilha.");
+    }
+    return resp.json();
+  };
+
+  const refreshPlanilhaFinanceira = async () => {
+    if (userRole !== "admin") return;
+    if (!planilhaMesInput || !planilhaResumoGrid || !planilhaTbody) return;
+
+    const mes = getSelectedPlanilhaMes();
+    planilhaResumoGrid.innerHTML = "<p>Carregando...</p>";
+    planilhaTbody.innerHTML = '<tr><td colspan="6">Carregando...</td></tr>';
+
+    try {
+      const data = await fetchPlanilhaMes(mes);
+      planilhaItensCache = Array.isArray(data?.itens) ? data.itens : [];
+      renderPlanilhaResumo(data?.resumo);
+      renderPlanilhaTabela(planilhaItensCache);
+    } catch (e) {
+      console.error(e);
+      if (planilhaResumoGrid) {
+        planilhaResumoGrid.innerHTML = '<p class="error-message">Erro ao carregar planilha.</p>';
+      }
+      if (planilhaTbody) {
+        planilhaTbody.innerHTML =
+          '<tr><td colspan="6" class="error-message">Erro ao carregar lançamentos.</td></tr>';
+      }
+    }
+  };
+
+  const initPlanilhaFinanceira = () => {
+    if (planilhaInitialized) return;
+    if (userRole !== "admin") return;
+    if (!planilhaMesInput || !planilhaForm || !planilhaTbody) return;
+
+    planilhaInitialized = true;
+
+    // Defaults
+    if (!planilhaMesInput.value) planilhaMesInput.value = getMesAtualYYYYMM();
+    if (planilhaDataInput && !planilhaDataInput.value) {
+      planilhaDataInput.value = new Date().toISOString().slice(0, 10);
+    }
+    setPlanilhaEditing(null);
+
+    if (planilhaAtualizarBtn) {
+      planilhaAtualizarBtn.addEventListener("click", () => refreshPlanilhaFinanceira());
+    }
+
+    planilhaMesInput.addEventListener("change", () => {
+      setPlanilhaEditing(null);
+      refreshPlanilhaFinanceira();
+    });
+
+    if (planilhaCancelarBtn) {
+      planilhaCancelarBtn.addEventListener("click", () => setPlanilhaEditing(null));
+    }
+
+    planilhaForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = {
+          data: String(planilhaDataInput?.value || "").trim(),
+          tipo: String(planilhaTipoInput?.value || "").trim(),
+          categoria: String(planilhaCategoriaInput?.value || "").trim(),
+          descricao: String(planilhaDescricaoInput?.value || "").trim(),
+          valor: Number(planilhaValorInput?.value || 0),
+        };
+
+        if (!payload.data || !payload.tipo || !payload.categoria) {
+          alert("Por favor preencha Data, Tipo e Categoria.");
+          return;
+        }
+        if (!Number.isFinite(payload.valor) || payload.valor <= 0) {
+          alert("Informe um valor válido.");
+          return;
+        }
+
+        const isEdit = Boolean(planilhaEditingId);
+        const url = isEdit
+          ? `${API_BASE}/api/relatorios/financeiro/planilha/${planilhaEditingId}`
+          : `${API_BASE}/api/relatorios/financeiro/planilha`;
+        const method = isEdit ? "PUT" : "POST";
+
+        const resp = await fetch(url, {
+          method,
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error(txt || "Falha ao salvar lançamento.");
+        }
+
+        setPlanilhaEditing(null);
+        await refreshPlanilhaFinanceira();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || "Erro ao salvar lançamento.");
+      }
+    });
+
+    planilhaTbody.addEventListener("click", async (event) => {
+      const btn = event.target.closest?.("button[data-planilha-action]");
+      if (!btn) return;
+      const tr = btn.closest?.("tr[data-planilha-id]");
+      const id = tr?.dataset?.planilhaId;
+      if (!id) return;
+
+      const action = btn.dataset.planilhaAction;
+      const item = planilhaItensCache.find((x) => String(x.id) === String(id));
+
+      if (action === "edit") {
+        if (!item) return;
+        setPlanilhaEditing(item);
+        return;
+      }
+
+      if (action === "delete") {
+        const ok = confirm("Excluir este lançamento?");
+        if (!ok) return;
+        try {
+          const resp = await fetch(
+            `${API_BASE}/api/relatorios/financeiro/planilha/${id}`,
+            {
+              method: "DELETE",
+              headers: getAuthHeaders(),
+            }
+          );
+          if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(txt || "Falha ao excluir lançamento.");
+          }
+          if (String(planilhaEditingId) === String(id)) setPlanilhaEditing(null);
+          await refreshPlanilhaFinanceira();
+        } catch (e) {
+          console.error(e);
+          alert(e.message || "Erro ao excluir lançamento.");
+        }
+      }
+    });
+  };
 
   const calcularIdade = (dataNascimento) => {
     if (!dataNascimento) return "N/A";
@@ -2147,6 +2417,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (relatorioForm) {
     relatorioForm.addEventListener("submit", gerarRelatorioFinanceiro);
   }
+
+  // Inicializa a planilha (se existir no HTML)
+  initPlanilhaFinanceira();
 
   featureCards.forEach((card) => {
     card.addEventListener("click", (event) => {

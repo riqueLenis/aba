@@ -1817,6 +1817,241 @@ app.post(
 );
 
 // ============================
+// Planilha Financeira Interna (Relatórios)
+// ============================
+
+async function ensureFinanceiroPlanilhaMovimentosTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS financeiro_planilha_movimentos (
+        id SERIAL PRIMARY KEY,
+        data DATE NOT NULL,
+        tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('entrada', 'saida')),
+        categoria TEXT NOT NULL,
+        descricao TEXT,
+        valor NUMERIC(12,2) NOT NULL CHECK (valor >= 0),
+        terapeuta_id INTEGER NULL,
+        created_by INTEGER NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_fin_planilha_mov_data ON financeiro_planilha_movimentos (data)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_fin_planilha_mov_terapeuta ON financeiro_planilha_movimentos (terapeuta_id)",
+    );
+  } catch (e) {
+    console.warn(
+      "Aviso: não foi possível garantir tabela financeiro_planilha_movimentos.",
+      e?.message || e,
+    );
+  }
+}
+
+ensureFinanceiroPlanilhaMovimentosTable();
+
+const assertValidMesYYYYMM = (mes) => {
+  const m = String(mes || "").trim();
+  if (!m) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const mo = String(now.getMonth() + 1).padStart(2, "0");
+    return `${y}-${mo}`;
+  }
+  if (!/^\d{4}-\d{2}$/.test(m)) {
+    const err = new Error("Parâmetro 'mes' inválido. Use o formato YYYY-MM.");
+    err.statusCode = 400;
+    throw err;
+  }
+  return m;
+};
+
+app.get(
+  "/api/relatorios/financeiro/planilha",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
+    const { id: userId, role } = req.terapeuta;
+    try {
+      const mes = assertValidMesYYYYMM(req.query?.mes);
+      const terapeutaIdQuery = req.query?.terapeutaId || req.query?.therapistId;
+
+      const values = [mes];
+      const whereParts = [
+        "data >= to_date($1 || '-01', 'YYYY-MM-DD')",
+        "data < (to_date($1 || '-01', 'YYYY-MM-DD') + interval '1 month')",
+      ];
+
+      if (role === "admin") {
+        if (terapeutaIdQuery) {
+          values.push(String(terapeutaIdQuery));
+          whereParts.push(`terapeuta_id = $${values.length}`);
+        }
+      } else {
+        values.push(String(userId));
+        whereParts.push(`terapeuta_id = $${values.length}`);
+      }
+
+      const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
+      const resumoQuery = `
+        SELECT
+          COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE 0 END), 0) AS entradas_total,
+          COALESCE(SUM(CASE WHEN tipo = 'saida' THEN valor ELSE 0 END), 0) AS saidas_total,
+          COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE -valor END), 0) AS saldo
+        FROM financeiro_planilha_movimentos
+        ${whereSql};
+      `;
+
+      const itensQuery = `
+        SELECT id, data, tipo, categoria, descricao, valor
+        FROM financeiro_planilha_movimentos
+        ${whereSql}
+        ORDER BY data ASC, id ASC;
+      `;
+
+      const [resumoResult, itensResult] = await Promise.all([
+        pool.query(resumoQuery, values),
+        pool.query(itensQuery, values),
+      ]);
+
+      res.status(200).json({
+        mes,
+        resumo: resumoResult.rows[0],
+        itens: itensResult.rows,
+      });
+    } catch (error) {
+      const code = error?.statusCode || 500;
+      console.error("Erro ao carregar planilha financeira:", error);
+      res.status(code).json({
+        error: error?.message || "Erro interno do servidor.",
+      });
+    }
+  },
+);
+
+app.post(
+  "/api/relatorios/financeiro/planilha",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
+    const { id: userId, role } = req.terapeuta;
+    if (role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado." });
+    }
+
+    const { data, tipo, categoria, descricao, valor } = req.body || {};
+    if (!data || !tipo || !categoria) {
+      return res.status(400).json({
+        error: "Campos obrigatórios: data, tipo e categoria.",
+      });
+    }
+    if (!Number.isFinite(Number(valor)) || Number(valor) <= 0) {
+      return res.status(400).json({ error: "Valor inválido." });
+    }
+    if (tipo !== "entrada" && tipo !== "saida") {
+      return res.status(400).json({ error: "Tipo inválido." });
+    }
+
+    try {
+      const result = await pool.query(
+        `
+        INSERT INTO financeiro_planilha_movimentos
+          (data, tipo, categoria, descricao, valor, terapeuta_id, created_by)
+        VALUES
+          ($1, $2, $3, $4, $5, NULL, $6)
+        RETURNING id, data, tipo, categoria, descricao, valor;
+      `,
+        [data, tipo, categoria, descricao || null, Number(valor), userId],
+      );
+
+      res.status(201).json({
+        message: "Lançamento criado com sucesso.",
+        item: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Erro ao criar lançamento da planilha:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
+app.put(
+  "/api/relatorios/financeiro/planilha/:id",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
+    const { id: userId, role } = req.terapeuta;
+    if (role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado." });
+    }
+
+    const { id } = req.params;
+    const { data, tipo, categoria, descricao, valor } = req.body || {};
+    if (!data || !tipo || !categoria) {
+      return res.status(400).json({
+        error: "Campos obrigatórios: data, tipo e categoria.",
+      });
+    }
+    if (!Number.isFinite(Number(valor)) || Number(valor) <= 0) {
+      return res.status(400).json({ error: "Valor inválido." });
+    }
+    if (tipo !== "entrada" && tipo !== "saida") {
+      return res.status(400).json({ error: "Tipo inválido." });
+    }
+
+    try {
+      const result = await pool.query(
+        `
+        UPDATE financeiro_planilha_movimentos
+        SET data = $1, tipo = $2, categoria = $3, descricao = $4, valor = $5, updated_at = NOW()
+        WHERE id = $6
+        RETURNING id, data, tipo, categoria, descricao, valor;
+      `,
+        [data, tipo, categoria, descricao || null, Number(valor), id],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Lançamento não encontrado." });
+      }
+
+      res.status(200).json({
+        message: "Lançamento atualizado com sucesso.",
+        item: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar lançamento da planilha:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
+app.delete(
+  "/api/relatorios/financeiro/planilha/:id",
+  [verificarToken, verificarAcessoFinanceiro],
+  async (req, res) => {
+    const { role } = req.terapeuta;
+    if (role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado." });
+    }
+
+    const { id } = req.params;
+    try {
+      const result = await pool.query(
+        "DELETE FROM financeiro_planilha_movimentos WHERE id = $1 RETURNING id;",
+        [id],
+      );
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Lançamento não encontrado." });
+      }
+      res.status(200).json({ message: "Lançamento excluído com sucesso." });
+    } catch (error) {
+      console.error("Erro ao excluir lançamento da planilha:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
+// ============================
 // Rotas ABA+ (Programas, Sessões, Evoluções, Planos)
 // ============================
 

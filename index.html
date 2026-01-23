@@ -841,6 +841,76 @@
               </form>
             </div>
 
+            <div
+              id="planilha-financeira-container"
+              class="mt-8 bg-white p-6 rounded-lg shadow-md"
+            >
+              <h3 class="form-section-title">Planilha Financeira (Entradas/Saídas)</h3>
+
+              <div class="flex items-end gap-4 flex-wrap">
+                <div class="form-group">
+                  <label for="planilha-mes" class="form-label">Mês</label>
+                  <input type="month" id="planilha-mes" class="form-input" />
+                </div>
+                <button id="planilha-atualizar-btn" type="button" class="btn btn-secondary">
+                  Atualizar
+                </button>
+              </div>
+
+              <div id="planilha-resumo-grid" class="stats-grid mt-6"></div>
+
+              <h3 class="form-section-title mt-8">Novo lançamento</h3>
+              <form id="planilha-form" class="flex items-end gap-4 flex-wrap">
+                <div class="form-group">
+                  <label for="planilha-data" class="form-label">Data</label>
+                  <input type="date" id="planilha-data" class="form-input" required />
+                </div>
+
+                <div class="form-group">
+                  <label for="planilha-tipo" class="form-label">Tipo</label>
+                  <select id="planilha-tipo" class="form-input" required>
+                    <option value="entrada">Entrada</option>
+                    <option value="saida">Saída</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="planilha-categoria" class="form-label">Categoria</label>
+                  <input type="text" id="planilha-categoria" class="form-input" placeholder="Ex: Aluguel" required />
+                </div>
+
+                <div class="form-group" style="min-width: 240px; flex: 1">
+                  <label for="planilha-descricao" class="form-label">Descrição</label>
+                  <input type="text" id="planilha-descricao" class="form-input" placeholder="Opcional" />
+                </div>
+
+                <div class="form-group">
+                  <label for="planilha-valor" class="form-label">Valor</label>
+                  <input type="number" id="planilha-valor" class="form-input" step="0.01" min="0" placeholder="0,00" required />
+                </div>
+
+                <button id="planilha-salvar-btn" type="submit" class="btn btn-primary">Salvar</button>
+                <button id="planilha-cancelar-btn" type="button" class="btn btn-secondary hidden">Cancelar</button>
+              </form>
+
+              <div class="transactions-container bg-white p-0 mt-8">
+                <h3 class="form-section-title">Lançamentos do mês</h3>
+                <table class="transactions-table">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Tipo</th>
+                      <th>Categoria</th>
+                      <th>Descrição</th>
+                      <th>Valor</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="planilha-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
             <div id="relatorio-resultado-container" class="mt-8 hidden">
               <h3 class="form-section-title">Resultados para o Período</h3>
               <div id="relatorio-summary-grid" class="stats-grid"></div>
