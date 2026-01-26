@@ -109,7 +109,7 @@ const normalizeEmail = (email) =>
 const ISOLATED_ADMIN_EMAILS = new Set(
   (
     process.env.ISOLATED_ADMIN_EMAILS ||
-    "marianaberrescavalheiro@gmail.com"
+    "marianaberrescavalheiro@gmail.com,keilafernanda@gmail.com"
   )
     .split(",")
     .map((e) => e.trim().toLowerCase())
