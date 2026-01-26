@@ -46,10 +46,10 @@ const verificarToken = (req, res, next) => {
 
 //middleware para ver se o usuario é admin ou nao
 const verificarAdmin = (req, res, next) => {
-  const role = req.terapeuta.role;
-
-  if (role !== "admin") {
-    return res.status(403).json({ error: "Acesso negao. Apenas admins" });
+  if (!hasSuperAdminPrivileges(req.terapeuta)) {
+    return res
+      .status(403)
+      .json({ error: "Acesso negado. Apenas admin com privilégios." });
   }
   next();
 };
@@ -104,6 +104,28 @@ const normalizeEmail = (email) =>
     .trim()
     .toLowerCase();
 
+// Admin isolado (por e-mail): continua sendo tipo_login=admin, mas NÃO tem acesso global.
+// Ele só vê/edita dados do próprio escopo (como um terapeuta) e não acessa planilha/financeiro de terceiros.
+const ISOLATED_ADMIN_EMAILS = new Set(
+  (
+    process.env.ISOLATED_ADMIN_EMAILS ||
+    "marianaberrescavalheiro@gmail.com"
+  )
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+const isIsolatedAdmin = (terapeuta) => {
+  if (!terapeuta) return false;
+  if (terapeuta.role !== "admin") return false;
+  const email = normalizeEmail(terapeuta.email);
+  return email ? ISOLATED_ADMIN_EMAILS.has(email) : false;
+};
+
+const hasSuperAdminPrivileges = (terapeuta) =>
+  Boolean(terapeuta?.role === "admin" && !isIsolatedAdmin(terapeuta));
+
 const isSessionPaymentFieldsBlockedUser = (terapeuta) => {
   if (!terapeuta) return false;
   if (terapeuta.role === "admin") return false;
@@ -131,6 +153,8 @@ const getTalitauUserId = async () => {
 };
 
 const canAccessTalitauPatients = (terapeuta) => {
+  // Admin isolado nunca participa de compartilhamentos.
+  if (isIsolatedAdmin(terapeuta)) return false;
   const email = normalizeEmail(terapeuta?.email);
   if (!email) return false;
   if (email === TALITAU_EMAIL) return true;
@@ -179,8 +203,8 @@ const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
         .json({ error: "Acesso negado aos pacientes deste terapeuta." });
     }
 
-    // Admin pode acessar demais pacientes
-    if (role === "admin") {
+    // Admin (com privilégios) pode acessar demais pacientes
+    if (hasSuperAdminPrivileges(user)) {
       req.pacienteAcesso = paciente;
       return next();
     }
@@ -290,7 +314,7 @@ const assertCanAccessPacienteId = async (req, res, pacienteId) => {
     return paciente;
   }
 
-  if (role === "admin") {
+  if (hasSuperAdminPrivileges(req.terapeuta)) {
     return paciente;
   }
 
@@ -699,7 +723,7 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
   let queryText = "SELECT * FROM pacientes";
   let values = [];
 
-  if (role === "admin") {
+  if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
     // Admin (secretaria) precisa ver todos os pacientes para agendar sessões.
     // Mantém a regra de compartilhamento restrito do Talitau.
     const talitauId = await getTalitauUserId();
@@ -709,6 +733,21 @@ app.get("/api/pacientes", verificarToken, async (req, res) => {
       values = [talitauId];
     } else {
       queryText += " ORDER BY nome_completo;";
+    }
+  } else if (role === "admin") {
+    // Admin isolado: só vê seus próprios pacientes (mesma regra de terapeuta).
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText +=
+        " WHERE (terapeuta_id = $1 OR terapeuta_id = $2) ORDER BY nome_completo;";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE terapeuta_id = $1 ORDER BY nome_completo;";
+      values = [userId];
     }
   } else if (role === "terapeuta") {
     // Terapeuta vê apenas seus pacientes (com exceção de compartilhamento do talitau)
@@ -1165,7 +1204,7 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
           error: "Acesso negado aos pacientes deste terapeuta.",
         });
       }
-    } else if (role !== "admin" && paciente.terapeuta_id !== userId) {
+    } else if (!hasSuperAdminPrivileges(req.terapeuta) && paciente.terapeuta_id !== userId) {
       return res.status(403).json({ error: "Acesso negado ao paciente." });
     }
 
@@ -1389,13 +1428,27 @@ app.get("/api/sessoes", verificarToken, async (req, res) => {
 
   let values = [];
 
-  if (role === "admin") {
+  if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
     // Admin (secretaria) enxerga todas as sessões para organizar agenda.
     // Mantém a regra de compartilhamento restrito do Talitau.
     const talitauId = await getTalitauUserId();
     if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
       queryText += " WHERE (p.terapeuta_id IS NULL OR p.terapeuta_id <> $1)";
       values = [talitauId];
+    }
+  } else if (role === "admin") {
+    // Admin isolado: só enxerga suas sessões (mesma regra de terapeuta).
+    const talitauId = await getTalitauUserId();
+    if (
+      talitauId &&
+      canAccessTalitauPatients(req.terapeuta) &&
+      Number(talitauId) !== Number(userId)
+    ) {
+      queryText += " WHERE (p.terapeuta_id = $1 OR p.terapeuta_id = $2)";
+      values = [userId, talitauId];
+    } else {
+      queryText += " WHERE p.terapeuta_id = $1";
+      values = [userId];
     }
   } else if (role === "terapeuta") {
     const talitauId = await getTalitauUserId();
@@ -1595,7 +1648,7 @@ app.get(
       ];
       const values = [];
 
-      if (role === "admin") {
+      if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
         if (terapeutaIdQuery) {
           if (
             talitauId &&
@@ -1671,7 +1724,7 @@ app.get(
       const whereParts = [];
       const values = [];
 
-      if (role === "admin") {
+      if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
         if (terapeutaIdQuery) {
           if (
             talitauId &&
@@ -1750,7 +1803,7 @@ app.post(
       const values = [data_inicio, data_fim];
       const whereParts = ["s.data_sessao::date BETWEEN $1 AND $2"];
 
-      if (role === "admin") {
+      if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
         if (terapeutaIdBody) {
           if (
             talitauId &&
@@ -1884,9 +1937,18 @@ app.get(
       ];
 
       if (role === "admin") {
-        if (terapeutaIdQuery) {
-          values.push(String(terapeutaIdQuery));
-          whereParts.push(`terapeuta_id = $${values.length}`);
+        if (hasSuperAdminPrivileges(req.terapeuta)) {
+          if (terapeutaIdQuery) {
+            values.push(String(terapeutaIdQuery));
+            whereParts.push(`terapeuta_id = $${values.length}`);
+          }
+        } else {
+          // Admin isolado: enxerga somente seus próprios lançamentos.
+          if (terapeutaIdQuery) {
+            return res.status(403).json({ error: "Acesso negado." });
+          }
+          values.push(String(userId));
+          whereParts.push(`created_by = $${values.length}`);
         }
       } else {
         values.push(String(userId));
@@ -1954,15 +2016,26 @@ app.post(
     }
 
     try {
+      const terapeutaIdForRow = hasSuperAdminPrivileges(req.terapeuta)
+        ? null
+        : userId;
       const result = await pool.query(
         `
         INSERT INTO financeiro_planilha_movimentos
           (data, tipo, categoria, descricao, valor, terapeuta_id, created_by)
         VALUES
-          ($1, $2, $3, $4, $5, NULL, $6)
+          ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, data, tipo, categoria, descricao, valor;
       `,
-        [data, tipo, categoria, descricao || null, Number(valor), userId],
+        [
+          data,
+          tipo,
+          categoria,
+          descricao || null,
+          Number(valor),
+          terapeutaIdForRow,
+          userId,
+        ],
       );
 
       res.status(201).json({
@@ -2000,14 +2073,24 @@ app.put(
     }
 
     try {
+      const isolated = isIsolatedAdmin(req.terapeuta);
       const result = await pool.query(
-        `
+        isolated
+          ? `
+        UPDATE financeiro_planilha_movimentos
+        SET data = $1, tipo = $2, categoria = $3, descricao = $4, valor = $5, updated_at = NOW()
+        WHERE id = $6 AND created_by = $7
+        RETURNING id, data, tipo, categoria, descricao, valor;
+      `
+          : `
         UPDATE financeiro_planilha_movimentos
         SET data = $1, tipo = $2, categoria = $3, descricao = $4, valor = $5, updated_at = NOW()
         WHERE id = $6
         RETURNING id, data, tipo, categoria, descricao, valor;
       `,
-        [data, tipo, categoria, descricao || null, Number(valor), id],
+        isolated
+          ? [data, tipo, categoria, descricao || null, Number(valor), id, userId]
+          : [data, tipo, categoria, descricao || null, Number(valor), id],
       );
 
       if (result.rowCount === 0) {
@@ -2029,16 +2112,19 @@ app.delete(
   "/api/relatorios/financeiro/planilha/:id",
   [verificarToken, verificarAcessoFinanceiro],
   async (req, res) => {
-    const { role } = req.terapeuta;
+    const { id: userId, role } = req.terapeuta;
     if (role !== "admin") {
       return res.status(403).json({ error: "Acesso negado." });
     }
 
     const { id } = req.params;
     try {
+      const isolated = isIsolatedAdmin(req.terapeuta);
       const result = await pool.query(
-        "DELETE FROM financeiro_planilha_movimentos WHERE id = $1 RETURNING id;",
-        [id],
+        isolated
+          ? "DELETE FROM financeiro_planilha_movimentos WHERE id = $1 AND created_by = $2 RETURNING id;"
+          : "DELETE FROM financeiro_planilha_movimentos WHERE id = $1 RETURNING id;",
+        isolated ? [id, userId] : [id],
       );
       if (result.rowCount === 0) {
         return res.status(404).json({ error: "Lançamento não encontrado." });
