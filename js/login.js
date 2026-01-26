@@ -6,6 +6,26 @@ document.addEventListener("DOMContentLoaded", () => {
   const passwordInput = document.getElementById("password");
   const credentialsError = document.getElementById("credentialsError");
 
+  const passwordToggleBtn = document.querySelector(
+    '[data-toggle-password="password"]',
+  );
+  if (passwordToggleBtn && passwordInput) {
+    passwordToggleBtn.addEventListener("click", () => {
+      const showing = passwordInput.type === "text";
+      passwordInput.type = showing ? "password" : "text";
+      passwordToggleBtn.classList.toggle("is-visible", !showing);
+      passwordToggleBtn.setAttribute(
+        "aria-label",
+        showing ? "Mostrar senha" : "Ocultar senha",
+      );
+      passwordToggleBtn.setAttribute(
+        "aria-pressed",
+        String(!showing),
+      );
+      passwordInput.focus();
+    });
+  }
+
   loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     credentialsError.classList.add("hidden");

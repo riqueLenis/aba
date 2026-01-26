@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
@@ -33,7 +33,7 @@
           </p>
         </div>
 
-        <div class="form-group">
+        <div class="form-group form-group--password">
           <input
             type="password"
             id="password"
@@ -43,6 +43,48 @@
             placeholder="••••••••"
           />
           <label for="password" class="form-label">Senha</label>
+
+          <button
+            type="button"
+            class="password-toggle"
+            id="togglePasswordBtn"
+            aria-label="Mostrar senha"
+            aria-pressed="false"
+          >
+            <span class="password-toggle__icon icon-eye">
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </span>
+            <span class="password-toggle__icon icon-eye-off">
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                ></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </span>
+          </button>
+
           <p id="passwordError" class="form-error-message hidden">
             A senha deve ter pelo menos 6 caracteres.
           </p>
@@ -62,6 +104,24 @@
       <a href="cadastro.html" class="forgot-password">Faça seu cadastro</a>
     </div>
 
-    <script src="js/login.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const toggleBtn = document.getElementById("togglePasswordBtn");
+        const passwordInput = document.getElementById("password");
+
+        if (toggleBtn && passwordInput) {
+          toggleBtn.addEventListener("click", function () {
+            const type =
+              passwordInput.getAttribute("type") === "password"
+                ? "text"
+                : "password";
+
+            passwordInput.setAttribute("type", type);
+
+            this.classList.toggle("is-visible");
+          });
+        }
+      });
+    </script>
   </body>
 </html>
