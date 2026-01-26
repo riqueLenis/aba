@@ -2253,8 +2253,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (downloadBtn) {
         downloadBtn.classList.remove("hidden");
-        downloadBtn.onclick = () =>
-          gerarPDFRelatorio(data_inicio, data_fim, resumoData, transacoesData);
+        downloadBtn.onclick = () => {
+          gerarPDFRelatorio(data_inicio, data_fim, resumoData, transacoesData)
+            .catch((e) => {
+              console.error(e);
+              alert("Falha ao gerar o PDF do relatório.");
+            });
+        };
       }
     } catch (error) {
       console.error(error);
@@ -2265,33 +2270,205 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  const gerarPDFRelatorio = (dataInicio, dataFim, resumo, transacoes) => {
+  const parseLocalDate = (yyyyMMdd) => {
+    const raw = String(yyyyMMdd || "").trim();
+    const [y, m, d] = raw.split("-").map((n) => Number(n));
+    if (!y || !m || !d) return new Date(raw);
+    return new Date(y, m - 1, d);
+  };
+
+  const toMonthKeyYYYYMM = (dateObj) => {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  };
+
+  const getMonthsBetweenInclusive = (startDate, endDate) => {
+    const months = [];
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const last = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    while (cursor <= last) {
+      months.push(toMonthKeyYYYYMM(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return months;
+  };
+
+  const safeNumber = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const fetchPlanilhaMesResumoEItens = async (mesYYYYMM) => {
+    const resp = await fetch(
+      `${API_BASE}/api/relatorios/financeiro/planilha?mes=${encodeURIComponent(
+        mesYYYYMM
+      )}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    );
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => "");
+      throw new Error(
+        `Falha ao carregar planilha (${mesYYYYMM}): ${resp.status} ${msg}`
+      );
+    }
+    return resp.json();
+  };
+
+  const gerarPDFRelatorio = async (dataInicio, dataFim, resumo, transacoes) => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
+
+    const inicioDate = parseLocalDate(dataInicio);
+    const fimDate = parseLocalDate(dataFim);
 
     doc.setFontSize(16);
     doc.text("Relatório Financeiro - PsyHead", 20, 20);
     doc.setFontSize(12);
     doc.text(
-      `Período: ${new Date(dataInicio).toLocaleDateString(
+      `Período: ${inicioDate.toLocaleDateString(
         "pt-BR"
-      )} a ${new Date(dataFim).toLocaleDateString("pt-BR")}`,
+      )} a ${fimDate.toLocaleDateString("pt-BR")}`,
       20,
       35
     );
+
+    // ============================
+    // Relatórios Centralizados (Planilha)
+    // ============================
+    let planilhaAgg = {
+      entradas: 0,
+      saidas: 0,
+      saldo: 0,
+      itens: [],
+    };
+    let planilhaIndisponivel = false;
+
+    try {
+      const meses = getMonthsBetweenInclusive(inicioDate, fimDate);
+      const results = [];
+      for (const mes of meses) {
+        // eslint-disable-next-line no-await-in-loop
+        results.push(await fetchPlanilhaMesResumoEItens(mes));
+      }
+
+      const inicioMs = inicioDate.getTime();
+      const fimMs = fimDate.getTime();
+
+      results.forEach((r) => {
+        planilhaAgg.entradas += safeNumber(r?.resumo?.entradas_total);
+        planilhaAgg.saidas += safeNumber(r?.resumo?.saidas_total);
+
+        const itens = Array.isArray(r?.itens) ? r.itens : [];
+        itens.forEach((it) => {
+          const dt = new Date(String(it.data));
+          const ms = dt.getTime();
+          if (!Number.isFinite(ms)) return;
+          if (ms < inicioMs || ms > fimMs) return;
+          planilhaAgg.itens.push(it);
+        });
+      });
+
+      planilhaAgg.saldo = planilhaAgg.entradas - planilhaAgg.saidas;
+      planilhaAgg.itens.sort((a, b) =>
+        String(a.data).localeCompare(String(b.data))
+      );
+    } catch (e) {
+      console.warn("Planilha indisponível para o PDF:", e);
+      planilhaIndisponivel = true;
+    }
 
     // Resumo
     doc.setFontSize(14);
     doc.text("Resumo do Período", 20, 55);
     doc.setFontSize(10);
     let yPos = 70;
+
+    const faturamentoSess = safeNumber(resumo?.faturamento_total);
     doc.text(
-      `Faturamento Total: ${formatarMoeda(resumo.faturamento_total)}`,
+      `Lucro (Sessões): ${formatarMoeda(faturamentoSess)}`,
       20,
       yPos
     );
     yPos += 10;
     doc.text(`Total de Sessões: ${resumo.total_sessoes}`, 20, yPos);
+
+    yPos += 15;
+    doc.setFontSize(14);
+    doc.text("Relatórios Centralizados (Planilha)", 20, yPos);
+    yPos += 10;
+    doc.setFontSize(10);
+
+    if (planilhaIndisponivel) {
+      doc.text(
+        "Planilha: indisponível para este usuário/ambiente.",
+        20,
+        yPos
+      );
+      yPos += 10;
+    } else {
+      doc.text(
+        `Entradas: ${formatarMoeda(planilhaAgg.entradas)}`,
+        20,
+        yPos
+      );
+      yPos += 8;
+      doc.text(
+        `Saídas (Despesas): ${formatarMoeda(planilhaAgg.saidas)}`,
+        20,
+        yPos
+      );
+      yPos += 8;
+      doc.text(`Lucro (Planilha): ${formatarMoeda(planilhaAgg.saldo)}`, 20, yPos);
+      yPos += 10;
+    }
+
+    const lucroTotal = faturamentoSess + (planilhaIndisponivel ? 0 : planilhaAgg.saldo);
+    doc.setFontSize(11);
+    doc.text(`Lucro Total (Sessões + Planilha): ${formatarMoeda(lucroTotal)}`, 20, yPos);
+    yPos += 10;
+    doc.setFontSize(10);
+
+    if (!planilhaIndisponivel && planilhaAgg.itens.length) {
+      yPos += 8;
+      doc.setFontSize(12);
+      doc.text("Movimentos (Planilha)", 20, yPos);
+      yPos += 8;
+      doc.setFontSize(8);
+      doc.text("Data | Tipo | Categoria | Valor | Descrição", 20, yPos);
+      yPos += 6;
+
+      const maxItens = 180;
+      planilhaAgg.itens.slice(0, maxItens).forEach((it) => {
+        if (yPos > 280) {
+          doc.addPage();
+          yPos = 20;
+        }
+        const dataFmt = new Date(String(it.data)).toLocaleDateString("pt-BR");
+        const tipo = String(it.tipo || "").toLowerCase();
+        const cat = String(it.categoria || "");
+        const desc = String(it.descricao || "").replace(/\s+/g, " ").trim();
+        const val = formatarMoeda(it.valor);
+        const linha = `${dataFmt} | ${tipo} | ${cat} | ${val} | ${desc}`;
+        doc.text(linha.slice(0, 120), 20, yPos);
+        yPos += 6;
+      });
+
+      if (planilhaAgg.itens.length > maxItens) {
+        if (yPos > 280) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.text(
+          `... (${planilhaAgg.itens.length - maxItens} itens omitidos)`,
+          20,
+          yPos
+        );
+        yPos += 6;
+      }
+    }
 
     if (transacoes.length > 0) {
       yPos += 20;
