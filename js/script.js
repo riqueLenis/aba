@@ -1306,15 +1306,18 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (userRole === "admin" && terapeutasDisponiveis.length === 0) {
+      // Somente admin "secretária" (não isolado) precisa da lista de terapeutas.
+      if (userRole === "admin" && !isIsolatedAdminUser() && terapeutasDisponiveis.length === 0) {
         try {
-          const resp = await fetch(
-            `${API_BASE}/api/terapeutas-lista`,
-            { headers: getAuthHeaders() }
-          );
-          terapeutasDisponiveis = await resp.json();
+          const resp = await fetch(`${API_BASE}/api/terapeutas-lista`, {
+            headers: getAuthHeaders(),
+          });
+          if (!resp.ok) throw new Error("Falha ao buscar lista de terapeutas.");
+          const payload = await resp.json();
+          terapeutasDisponiveis = Array.isArray(payload) ? payload : [];
         } catch (e) {
-          console.error("Erro ao buscar lista de terapeutas");
+          console.error("Erro ao buscar lista de terapeutas", e);
+          terapeutasDisponiveis = [];
         }
       }
 
@@ -1356,11 +1359,15 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
           `;
 
-      if (userRole === "admin") {
+      // Apenas admin "secretária" enxerga atribuição/terapeuta responsável.
+      if (userRole === "admin" && !isIsolatedAdminUser()) {
         let terapeutaInfo = "";
         if (paciente.terapeuta_id) {
-          const terapeuta = terapeutasDisponiveis.find(
-            (t) => t.id === paciente.terapeuta_id
+          const terapeutasArray = Array.isArray(terapeutasDisponiveis)
+            ? terapeutasDisponiveis
+            : [];
+          const terapeuta = terapeutasArray.find(
+            (t) => String(t.id) === String(paciente.terapeuta_id)
           );
           terapeutaInfo = `<span class="patient-owner">Terapeuta: ${
             terapeuta ? terapeuta.nome : "ID " + paciente.terapeuta_id
