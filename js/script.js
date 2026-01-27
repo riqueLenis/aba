@@ -96,6 +96,13 @@ document.addEventListener("DOMContentLoaded", () => {
     "magroisabella13@gmail.com",
   ]);
 
+  // Admins isolados (por e-mail): continuam role=admin, mas não são "secretária".
+  // Para eles, o agendamento funciona sem selecionar psicólogo.
+  const ISOLATED_ADMIN_EMAILS = new Set([
+    "marianaberrescavalheiro@gmail.com",
+    "keilafernanda@gmail.com",
+  ]);
+
   const parseJwtPayload = (jwt) => {
     try {
       const parts = String(jwt || "").split(".");
@@ -112,6 +119,14 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {
       return null;
     }
+  };
+
+  const isIsolatedAdminUser = () => {
+    if (!token) return false;
+    if (userRole !== "admin") return false;
+    const payload = parseJwtPayload(token);
+    const email = String(payload?.email || "").trim().toLowerCase();
+    return email ? ISOLATED_ADMIN_EMAILS.has(email) : false;
   };
 
   const isFinanceBlockedUser = () => {
@@ -179,6 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const ensureTherapistsLoaded = async () => {
     if (userRole !== "admin") return;
+    if (isIsolatedAdminUser()) return;
     if (terapeutasDisponiveis.length > 0) return;
     try {
       const resp = await fetch(`${API_BASE}/api/terapeutas-lista`, {
@@ -1649,7 +1665,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const pacientes = await response.json();
       pacientesDropdownCache = Array.isArray(pacientes) ? pacientes : [];
 
-      if (userRole === "admin") {
+      if (userRole === "admin" && !isIsolatedAdminUser()) {
         await ensureTherapistsLoaded();
         if (sessionTherapistGroup) sessionTherapistGroup.classList.remove("hidden");
         if (sessionTherapistSelector) {
@@ -2745,7 +2761,7 @@ document.addEventListener("DOMContentLoaded", () => {
       showSessionFormBtn.disabled = !pacienteId;
 
       // Para admin, ao selecionar paciente, sugere o terapeuta responsável atual.
-      if (userRole === "admin" && sessionTherapistSelector) {
+      if (userRole === "admin" && !isIsolatedAdminUser() && sessionTherapistSelector) {
         const p = pacientesDropdownCache.find(
           (x) => String(x.id) === String(pacienteId)
         );
@@ -2805,7 +2821,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderCurricularFolderDetails(null);
 
       // Admin precisa escolher o psicólogo responsável no agendamento
-      if (userRole === "admin") {
+      if (userRole === "admin" && !isIsolatedAdminUser()) {
         if (sessionTherapistGroup) sessionTherapistGroup.classList.remove("hidden");
         if (sessionTherapistSelector) {
           const p = pacientesDropdownCache.find(
@@ -2815,6 +2831,8 @@ document.addEventListener("DOMContentLoaded", () => {
           sessionTherapistSelector.value =
             currentTherapistId != null ? String(currentTherapistId) : "";
         }
+      } else {
+        if (sessionTherapistGroup) sessionTherapistGroup.classList.add("hidden");
       }
     });
   }
@@ -2953,7 +2971,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // Fluxo SECRETÁRIA (admin): escolhe psicólogo responsável antes de agendar
-      if (userRole === "admin") {
+      // Admins isolados não usam este fluxo.
+      if (userRole === "admin" && !isIsolatedAdminUser()) {
         const terapeutaIdSelecionado = sessionTherapistSelector?.value;
         if (!terapeutaIdSelecionado) {
           alert("Selecione o psicólogo responsável antes de salvar a sessão.");
