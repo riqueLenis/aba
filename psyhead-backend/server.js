@@ -839,7 +839,7 @@ app.put(
       historico_medico,
       motivacao_consulta,
     } = req.body;
-    if (!nome_completo || !data_nascimento || !celular || !motivacao_consulta) {
+    if (!nome_completo || !data_nascimento || !sexo || !celular) {
       return res.status(400).json({
         error: "campos obrigatórios faltando!!",
       });

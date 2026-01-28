@@ -2928,8 +2928,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (
         !pacienteData.nome_completo ||
         !pacienteData.data_nascimento ||
-        !pacienteData.celular ||
-        !pacienteData.motivacao_consulta
+        !pacienteData.sexo ||
+        !pacienteData.celular
       ) {
         alert("Por favor preencha todos os campos obrigatórios");
         return;
