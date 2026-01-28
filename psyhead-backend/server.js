@@ -170,6 +170,7 @@ const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
 
     const user = req.terapeuta;
     const { id: userId, role } = user;
+    const userIdStr = String(userId);
 
     const result = await pool.query(
       "SELECT id, terapeuta_id, usuario_id FROM pacientes WHERE id = $1",
@@ -185,7 +186,7 @@ const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
 
     // Login de paciente: só acessa o próprio prontuário
     if (role === "paciente") {
-      if (paciente.usuario_id === userId) {
+      if (String(paciente.usuario_id) === userIdStr) {
         req.pacienteAcesso = paciente;
         return next();
       }
@@ -210,7 +211,7 @@ const makeVerificarAcessoPaciente = (paramName) => async (req, res, next) => {
     }
 
     // Terapeuta: só acessa pacientes próprios
-    if (paciente.terapeuta_id === userId) {
+    if (String(paciente.terapeuta_id) === userIdStr) {
       req.pacienteAcesso = paciente;
       return next();
     }
@@ -294,10 +295,11 @@ const assertCanAccessPacienteId = async (req, res, pacienteId) => {
   }
 
   const { id: userId, role } = req.terapeuta;
+  const userIdStr = String(userId);
   const talitauId = await getTalitauUserId();
 
   if (role === "paciente") {
-    if (paciente.usuario_id !== userId) {
+    if (String(paciente.usuario_id) !== userIdStr) {
       res.status(403).json({ error: "Acesso negado ao paciente." });
       return null;
     }
@@ -318,7 +320,7 @@ const assertCanAccessPacienteId = async (req, res, pacienteId) => {
     return paciente;
   }
 
-  if (paciente.terapeuta_id !== userId) {
+  if (String(paciente.terapeuta_id) !== userIdStr) {
     res.status(403).json({ error: "Acesso negado ao paciente." });
     return null;
   }
@@ -1192,10 +1194,11 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
     }
     const paciente = pacienteRes.rows[0];
     const { id: userId, role } = req.terapeuta;
+    const userIdStr = String(userId);
     const talitauId = await getTalitauUserId();
 
     if (role === "paciente") {
-      if (paciente.usuario_id !== userId) {
+      if (String(paciente.usuario_id) !== userIdStr) {
         return res.status(403).json({ error: "Acesso negado ao paciente." });
       }
     } else if (talitauId && paciente.terapeuta_id === talitauId) {
@@ -1204,7 +1207,10 @@ app.post("/api/sessoes", verificarToken, async (req, res) => {
           error: "Acesso negado aos pacientes deste terapeuta.",
         });
       }
-    } else if (!hasSuperAdminPrivileges(req.terapeuta) && paciente.terapeuta_id !== userId) {
+    } else if (
+      !hasSuperAdminPrivileges(req.terapeuta) &&
+      String(paciente.terapeuta_id) !== userIdStr
+    ) {
       return res.status(403).json({ error: "Acesso negado ao paciente." });
     }
 
