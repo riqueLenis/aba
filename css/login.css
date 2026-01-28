@@ -227,6 +227,28 @@ body {
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
 
+.btn.is-loading {
+  opacity: 0.85;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+}
+
+.login-loading {
+  margin-top: 0.75rem;
+  text-align: center;
+  color: var(--gray-600);
+  font-size: 0.9rem;
+}
+
+.login-loading.hidden {
+  display: none;
+}
+
 .forgot-password {
   display: block;
   text-align: center;
