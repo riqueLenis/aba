@@ -26,6 +26,14 @@ body {
   background: var(--bg);
 }
 
+body.embed .header {
+  display: none;
+}
+
+body.embed .page {
+  padding-top: 16px;
+}
+
 .page {
   max-width: 1200px;
   margin: 0 auto;

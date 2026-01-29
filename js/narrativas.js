@@ -1,6 +1,15 @@
 const API_BASE = "https://aba-aos0.onrender.com";
 const token = localStorage.getItem("psyhead-token");
 
+try {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("embed") === "1") {
+    document.body.classList.add("embed");
+  }
+} catch {
+  // ignore
+}
+
 if (!token) {
   window.location.href = "login.html";
 }

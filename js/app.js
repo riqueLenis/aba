@@ -545,6 +545,19 @@ const Views = {
     ]);
   },
 
+  Narrativas() {
+    // Mantém o padrão SPA do ABA+ (sidebar + título + view) e carrega a tela
+    // existente de narrativas dentro do painel via iframe.
+    return el("div", { style: "height: calc(100vh - 140px);" }, [
+      el("iframe", {
+        src: "narrativas.html?embed=1",
+        style:
+          "width: 100%; height: 100%; border: 0; border-radius: 14px; background: #fff;",
+        title: "Narrativas ABC",
+      }),
+    ]);
+  },
+
   CurricularFolders() {
     const wrap = el("div");
     const { patients, programs, targets } = Store.get();
@@ -4060,6 +4073,7 @@ Router.mount(
 Router.mount("/performance", "Desempenho", Views.Performance);
 Router.mount("/evolution", "Evolução de Critério", Views.Evolution);
 Router.mount("/plans", "Planos Terapêuticos", Views.Plans);
+Router.mount("/narrativas", "Narrativas ABC", Views.Narrativas);
 Router.mount("*", "Não Encontrado", Views.NotFound);
 
 const initABA = async () => {
