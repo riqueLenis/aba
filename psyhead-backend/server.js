@@ -3389,6 +3389,315 @@ app.delete(
   },
 );
 
+// =====================================================
+// Narrativas ABC
+// =====================================================
+
+const assertCanAccessNarrativaABCId = async (req, res, narrativaId) => {
+  const { id: userId, role } = req.terapeuta || {};
+
+  if (!narrativaId) {
+    res.status(400).json({ error: "narrativaId é obrigatório." });
+    return false;
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT id, terapeuta_id FROM narrativas_abc WHERE id = $1",
+      [narrativaId],
+    );
+
+    if (!result.rows.length) {
+      res.status(404).json({ error: "Narrativa não encontrada." });
+      return false;
+    }
+
+    // Admin super (secretaria) pode gerenciar tudo.
+    if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
+      return true;
+    }
+
+    const row = result.rows[0];
+    if (String(row.terapeuta_id || "") !== String(userId || "")) {
+      res.status(403).json({ error: "Acesso negado à narrativa." });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Erro ao validar acesso à narrativa:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+    return false;
+  }
+};
+
+app.get("/api/narrativas-abc", verificarToken, async (req, res) => {
+  const { id: userId, role } = req.terapeuta;
+  const { inicio, fim, busca } = req.query || {};
+
+  const where = [];
+  const values = [];
+
+  // Escopo por usuário (admin isolado se comporta como terapeuta)
+  if (!(role === "admin" && hasSuperAdminPrivileges(req.terapeuta))) {
+    values.push(userId);
+    where.push(`terapeuta_id = $${values.length}`);
+  }
+
+  if (inicio) {
+    values.push(inicio);
+    where.push(`data >= $${values.length}::date`);
+  }
+  if (fim) {
+    values.push(fim);
+    where.push(`data < ($${values.length}::date + INTERVAL '1 day')`);
+  }
+  if (busca) {
+    values.push(`%${String(busca).trim()}%`);
+    where.push(
+      `(aprendiz ILIKE $${values.length} OR local ILIKE $${values.length} OR profissional ILIKE $${values.length})`,
+    );
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  try {
+    const queryText = `
+      SELECT
+        id,
+        terapeuta_id,
+        status,
+        data,
+        duracao,
+        aprendiz,
+        local,
+        intensidade,
+        antecedente,
+        comportamento,
+        consequencias,
+        observacoes,
+        profissional,
+        criado_em,
+        atualizado_em
+      FROM narrativas_abc
+      ${whereSql}
+      ORDER BY data DESC, id DESC;
+    `;
+    const result = await pool.query(queryText, values);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar narrativas ABC:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.get("/api/narrativas-abc/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const ok = await assertCanAccessNarrativaABCId(req, res, id);
+  if (!ok) return;
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM narrativas_abc WHERE id = $1",
+      [id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Narrativa não encontrada." });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao buscar narrativa ABC:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.post("/api/narrativas-abc", verificarToken, async (req, res) => {
+  const { role, id: userId } = req.terapeuta;
+  if (role === "paciente") {
+    return res
+      .status(403)
+      .json({ error: "Pacientes não podem criar narrativas." });
+  }
+
+  const {
+    data,
+    duracao,
+    aprendiz,
+    local,
+    intensidade,
+    antecedente,
+    comportamento,
+    consequencias,
+    observacoes,
+    profissional,
+  } = req.body || {};
+
+  if (!data || !duracao || !aprendiz || !local) {
+    return res.status(400).json({ error: "Campos obrigatórios faltando." });
+  }
+
+  try {
+    const queryText = `
+      INSERT INTO narrativas_abc (
+        terapeuta_id,
+        status,
+        data,
+        duracao,
+        aprendiz,
+        local,
+        intensidade,
+        antecedente,
+        comportamento,
+        consequencias,
+        observacoes,
+        profissional
+      ) VALUES (
+        $1, 'ATIVO', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+      )
+      RETURNING *;
+    `;
+
+    const values = [
+      userId,
+      data,
+      duracao,
+      aprendiz,
+      local,
+      intensidade ?? null,
+      antecedente || "",
+      comportamento || "",
+      consequencias || "",
+      observacoes || "",
+      profissional || "",
+    ];
+
+    const result = await pool.query(queryText, values);
+    res.status(201).json({
+      message: "Narrativa criada com sucesso!",
+      narrativa: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Erro ao criar narrativa ABC:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.put("/api/narrativas-abc/:id", verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { role } = req.terapeuta;
+  if (role === "paciente") {
+    return res
+      .status(403)
+      .json({ error: "Pacientes não podem editar narrativas." });
+  }
+
+  const ok = await assertCanAccessNarrativaABCId(req, res, id);
+  if (!ok) return;
+
+  const {
+    data,
+    duracao,
+    aprendiz,
+    local,
+    intensidade,
+    antecedente,
+    comportamento,
+    consequencias,
+    observacoes,
+    profissional,
+  } = req.body || {};
+
+  if (!data || !duracao || !aprendiz || !local) {
+    return res.status(400).json({ error: "Campos obrigatórios faltando." });
+  }
+
+  try {
+    const queryText = `
+      UPDATE narrativas_abc
+      SET
+        data = $1,
+        duracao = $2,
+        aprendiz = $3,
+        local = $4,
+        intensidade = $5,
+        antecedente = $6,
+        comportamento = $7,
+        consequencias = $8,
+        observacoes = $9,
+        profissional = $10,
+        atualizado_em = NOW()
+      WHERE id = $11
+      RETURNING *;
+    `;
+
+    const values = [
+      data,
+      duracao,
+      aprendiz,
+      local,
+      intensidade ?? null,
+      antecedente || "",
+      comportamento || "",
+      consequencias || "",
+      observacoes || "",
+      profissional || "",
+      id,
+    ];
+
+    const result = await pool.query(queryText, values);
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Narrativa não encontrada." });
+    }
+    res.status(200).json({
+      message: "Narrativa atualizada com sucesso!",
+      narrativa: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Erro ao atualizar narrativa ABC:", error);
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+app.patch(
+  "/api/narrativas-abc/:id/status",
+  verificarToken,
+  async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.terapeuta;
+    if (role === "paciente") {
+      return res
+        .status(403)
+        .json({ error: "Pacientes não podem alterar status." });
+    }
+
+    const ok = await assertCanAccessNarrativaABCId(req, res, id);
+    if (!ok) return;
+
+    const { status } = req.body || {};
+    const normalized = String(status || "").toUpperCase();
+    if (!normalized || (normalized !== "ATIVO" && normalized !== "INATIVO")) {
+      return res.status(400).json({ error: "Status inválido." });
+    }
+
+    try {
+      const result = await pool.query(
+        "UPDATE narrativas_abc SET status = $1, atualizado_em = NOW() WHERE id = $2 RETURNING *",
+        [normalized, id],
+      );
+      if (!result.rows.length) {
+        return res.status(404).json({ error: "Narrativa não encontrada." });
+      }
+      res.status(200).json({
+        message: "Status atualizado.",
+        narrativa: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar status da narrativa ABC:", error);
+      res.status(500).json({ error: "Erro interno do servidor." });
+    }
+  },
+);
+
 app.listen(PORT, () => {
   console.log(`Servidor do PsyHead rodando na porta ${PORT}`);
 });

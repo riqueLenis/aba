@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="css/narrativas.css" />
+    <title>Narrativas ABC</title>
+  </head>
+  <body>
+    <main class="page">
+      <div class="header">
+        <h1>Narrativas ABC</h1>
+        <button id="btnNova" class="btn btn-primary" type="button">
+          <span style="font-size: 18px; line-height: 0">+</span>
+          Nova Narrativa
+        </button>
+      </div>
+
+      <!-- LISTA -->
+      <section id="viewLista" class="panel">
+        <div class="toolbar">
+          <div class="input">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <input id="filtroInicio" type="date" placeholder="Data início" />
+          </div>
+
+          <div class="input">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <input id="filtroFim" type="date" placeholder="Data fim" />
+          </div>
+
+          <div class="input">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              id="filtroBusca"
+              type="text"
+              placeholder="Busque pelo aprendiz..."
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <div id="cards" class="cards"></div>
+        <div id="empty" class="empty hidden">
+          Nenhuma narrativa encontrada. Clique em
+          <strong>Nova Narrativa</strong>
+          para criar.
+        </div>
+      </section>
+
+      <!-- FORMULÁRIO -->
+      <section id="viewForm" class="panel hidden" style="margin-top: 18px">
+        <div class="form-wrap">
+          <form id="narrativaForm">
+            <input type="hidden" id="narrativaId" />
+
+            <div class="form-grid">
+              <div class="field">
+                <label for="data"> Data <span class="required">*</span> </label>
+                <div class="control">
+                  <input id="data" name="data" type="datetime-local" required />
+                  <svg
+                    class="icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="3"
+                      y="4"
+                      width="18"
+                      height="18"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="duracao">
+                  Duração <span class="required">*</span>
+                </label>
+                <div class="control">
+                  <input
+                    id="duracao"
+                    name="duracao"
+                    type="text"
+                    required
+                    placeholder="Ex.: 45 min"
+                  />
+                  <svg
+                    class="icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="intensidade">Grau de Intensidade</label>
+                <div class="control">
+                  <input
+                    id="intensidade"
+                    name="intensidade"
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="1"
+                    placeholder="0 a 10"
+                  />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="aprendiz">
+                  Aprendiz <span class="required">*</span>
+                </label>
+                <div class="control">
+                  <select id="aprendiz" name="aprendiz" required>
+                    <option value="">Selecione um aprendiz...</option>
+                    <option value="Murilo Marquete">Murilo Marquete</option>
+                    <option value="Júlia Souza Russi">Júlia Souza Russi</option>
+                    <option value="Outro">Outro (digitar abaixo)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="aprendizOutro" style="opacity: 0.9">
+                  Aprendiz (se "Outro")
+                </label>
+                <div class="control">
+                  <input
+                    id="aprendizOutro"
+                    name="aprendizOutro"
+                    type="text"
+                    placeholder="Digite o nome do aprendiz"
+                  />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="local">
+                  Local <span class="required">*</span>
+                </label>
+                <div class="control">
+                  <select id="local" name="local" required>
+                    <option value="">Selecione o local</option>
+                    <option value="Clínica">Clínica</option>
+                    <option value="Casa">Casa</option>
+                    <option value="Escola">Escola</option>
+                    <option value="Online">Online</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="block">
+              <h4>A - Antecedente</h4>
+              <textarea id="antecedente" maxlength="4000"></textarea>
+              <div class="counter" data-counter-for="antecedente">
+                4000/4000 caracteres restantes
+              </div>
+            </div>
+
+            <div class="block">
+              <h4>B - Comportamento</h4>
+              <textarea id="comportamento" maxlength="4000"></textarea>
+              <div class="counter" data-counter-for="comportamento">
+                4000/4000 caracteres restantes
+              </div>
+            </div>
+
+            <div class="block">
+              <h4>C - Consequências</h4>
+              <textarea id="consequencias" maxlength="4000"></textarea>
+              <div class="counter" data-counter-for="consequencias">
+                4000/4000 caracteres restantes
+              </div>
+            </div>
+
+            <div class="block">
+              <h4>Observações do Supervisor</h4>
+              <textarea id="observacoes" maxlength="4000"></textarea>
+              <div class="counter" data-counter-for="observacoes">
+                4000/4000 caracteres restantes
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button id="btnCancelar" type="button" class="btn btn-secondary">
+                Cancelar
+              </button>
+              <button id="btnSalvar" type="submit" class="btn btn-primary">
+                Salvar
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="js/narrativas.js"></script>
+  </body>
+</html>
