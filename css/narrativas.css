@@ -26,7 +26,7 @@ body {
   background: var(--bg);
 }
 
-body.embed .header {
+body.embed .header h1 {
   display: none;
 }
 

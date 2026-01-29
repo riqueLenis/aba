@@ -172,6 +172,19 @@ const setMode = (mode) => {
   const isForm = mode === "form";
   viewForm.classList.toggle("hidden", !isForm);
   viewLista.classList.toggle("hidden", isForm);
+
+  // Ao voltar para a lista (ex.: após salvar/cancelar), garante que o usuário
+  // veja o botão "Nova Narrativa" mesmo com muitas narrativas e scroll.
+  if (!isForm) {
+    window.requestAnimationFrame(() => {
+      try {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch {
+        window.scrollTo(0, 0);
+      }
+      btnNova?.focus?.();
+    });
+  }
 };
 
 const resetForm = () => {
