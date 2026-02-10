@@ -3225,6 +3225,9 @@ app.post(
       }
 
       if (programId) {
+        if (String(programId) === "__unlinked__") {
+          return res.status(400).json({ error: "programId inválido." });
+        }
         const programRes = await pool.query(
           "SELECT id, paciente_id, terapeuta_id FROM aba_programas WHERE id = $1",
           [programId],
@@ -3248,15 +3251,17 @@ app.post(
           }
         }
 
-        const attachedRes = await pool.query(
-          "SELECT 1 FROM aba_pasta_programas WHERE pasta_id = $1 AND programa_id = $2",
+        // Garante que o programa está anexado à pasta.
+        // Isso evita bloqueios em casos de inconsistência/UX onde o usuário já anexou
+        // (ou tentou anexar) e ainda assim o vínculo não foi reconhecido.
+        await pool.query(
+          `
+            INSERT INTO aba_pasta_programas (pasta_id, programa_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING;
+          `,
           [id, programId],
         );
-        if (!attachedRes.rowCount) {
-          return res.status(400).json({
-            error: "Anexe o programa à pasta antes de vincular alvos a ele.",
-          });
-        }
       }
 
       try {
