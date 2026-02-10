@@ -2178,7 +2178,17 @@ app.get("/api/aba/programas", verificarToken, async (req, res) => {
   `;
   let values = [];
 
-  if (role === "terapeuta" || role === "admin") {
+  if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
+    // Admin com privilégios: acessa todos os programas.
+    // Respeita a regra especial de compartilhamento do Talitau.
+    const talitauId = await getTalitauUserId();
+    if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+      queryText +=
+        " WHERE (p.terapeuta_id IS NULL OR p.terapeuta_id <> $1)" +
+        " AND (ap.paciente_id IS NOT NULL OR ap.terapeuta_id <> $1)";
+      values = [talitauId];
+    }
+  } else if (role === "terapeuta" || role === "admin") {
     const talitauId = await getTalitauUserId();
     if (
       talitauId &&
@@ -3003,7 +3013,15 @@ app.get("/api/aba/pastas-curriculares", verificarToken, async (req, res) => {
   let queryText = buildQuery({ includeProgramIdInTargets: true });
 
   let values = [];
-  if (role === "terapeuta" || role === "admin") {
+  if (role === "admin" && hasSuperAdminPrivileges(req.terapeuta)) {
+    // Admin com privilégios: lista pastas de qualquer paciente.
+    // Respeita a regra especial de compartilhamento do Talitau.
+    const talitauId = await getTalitauUserId();
+    if (talitauId && !canAccessTalitauPatients(req.terapeuta)) {
+      queryText += " WHERE p.terapeuta_id <> $1";
+      values = [talitauId];
+    }
+  } else if (role === "terapeuta" || role === "admin") {
     const talitauId = await getTalitauUserId();
     if (
       talitauId &&
@@ -3155,17 +3173,13 @@ app.post(
         const ok = await assertCanAccessPacienteId(req, res, prog.paciente_id);
         if (!ok) return;
       } else {
-        // Programa sem paciente: só o terapeuta dono (ou admin) pode anexar.
+        // Programa sem paciente (template/modelo):
+        // qualquer terapeuta/admin pode anexar em uma pasta curricular à qual já possui acesso.
+        // (o acesso à pasta/paciente já foi validado pelo middleware verificarAcessoPastaCurricular)
         if (req.terapeuta?.role === "paciente") {
           return res
             .status(403)
             .json({ error: "Pacientes não podem anexar este programa." });
-        }
-        if (
-          req.terapeuta?.role !== "admin" &&
-          String(prog.terapeuta_id || "") !== String(req.terapeuta?.id || "")
-        ) {
-          return res.status(403).json({ error: "Acesso negado ao programa." });
         }
       }
 
@@ -3225,17 +3239,12 @@ app.post(
           const ok = await assertCanAccessPacienteId(req, res, prog.paciente_id);
           if (!ok) return;
         } else {
-          // Programa sem paciente: só o terapeuta dono (ou admin) pode vincular.
+          // Programa sem paciente (template/modelo):
+          // qualquer terapeuta/admin pode vincular alvos, desde que tenha acesso à pasta/paciente.
           if (req.terapeuta?.role === "paciente") {
             return res
               .status(403)
               .json({ error: "Pacientes não podem vincular alvos neste programa." });
-          }
-          if (
-            req.terapeuta?.role !== "admin" &&
-            String(prog.terapeuta_id || "") !== String(req.terapeuta?.id || "")
-          ) {
-            return res.status(403).json({ error: "Acesso negado ao programa." });
           }
         }
 

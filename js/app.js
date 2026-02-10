@@ -1031,11 +1031,18 @@ const Views = {
       );
 
       const patientPrograms = (allPrograms || [])
+        .filter((p) => {
+          const pid = String(p.patientId || "");
+          // Programas do paciente selecionado + modelos (sem paciente)
+          return !pid || pid === String(selectedPatientId);
+        })
         .slice()
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
         .map((p) => {
           const pid = String(p.patientId || "");
-          const patientName = pid ? byPatientId.get(pid) || "Paciente não encontrado" : "Sem paciente";
+          const patientName = pid
+            ? byPatientId.get(pid) || "Paciente não encontrado"
+            : "Modelo (sem paciente)";
           return [p.id, `${p.name} — ${patientName}`];
         });
 
