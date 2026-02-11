@@ -2396,28 +2396,47 @@ app.delete("/api/aba/programas/:id", verificarToken, async (req, res) => {
       return res.status(404).json({ error: "Programa ABA não encontrado." });
     }
 
-    const row = programRes.rows[0];
-    if (row.paciente_id) {
-      const ok = await assertCanAccessPacienteId(req, res, row.paciente_id);
-      if (!ok) return;
-    } else {
-      if (
-        req.terapeuta?.role !== "admin" &&
-        String(row.terapeuta_id || "") !== String(req.terapeuta?.id || "")
-      ) {
-        return res.status(403).json({ error: "Acesso negado ao programa." });
-      }
+    // Regra solicitada pelo cliente: qualquer terapeuta/admin pode excluir qualquer programa.
+    // Mantém bloqueio para role=paciente.
+
+    await pool.query("BEGIN");
+
+    // Remove vínculos que podem impedir o delete por FK.
+    await pool.query("DELETE FROM aba_pasta_programas WHERE programa_id = $1", [
+      id,
+    ]);
+
+    // Desvincula alvos associados a este programa dentro das pastas (se a coluna existir)
+    try {
+      await pool.query("UPDATE aba_pasta_alvos SET programa_id = NULL WHERE programa_id = $1", [
+        id,
+      ]);
+    } catch (e) {
+      // compatibilidade: bancos antigos sem coluna programa_id
     }
+
+    // Sessões ABA e evoluções de critério dependem de programa_id
+    await pool.query("DELETE FROM aba_sessoes WHERE programa_id = $1", [id]);
+    await pool.query(
+      "DELETE FROM aba_evolucoes_criterio WHERE programa_id = $1",
+      [id],
+    );
 
     const result = await pool.query(
       "DELETE FROM aba_programas WHERE id = $1 RETURNING id",
       [id],
     );
     if (!result.rowCount) {
+      await pool.query("ROLLBACK");
       return res.status(404).json({ error: "Programa ABA não encontrado." });
     }
+
+    await pool.query("COMMIT");
     res.status(200).json({ message: "Programa ABA excluído com sucesso." });
   } catch (error) {
+    try {
+      await pool.query("ROLLBACK");
+    } catch {}
     console.error("Erro ao excluir programa ABA:", error);
     res.status(500).json({ error: "Erro interno do servidor." });
   }
